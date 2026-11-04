@@ -10,6 +10,7 @@ APPDIR="$BUILD/vlswmplayer.AppDir"
 OUT="$ROOT/vlswmplayer-$VERSION-x86_64.AppImage"
 
 mkdir -p "$BUILD"
+rm -f "$ROOT"/vlswmplayer-*-x86_64.AppImage
 cargo build --release
 
 rm -rf "$APPDIR"

@@ -44,18 +44,11 @@ fi
 mkdir -p "$BIN_DIR" "$ICON_DIR" "$DESKTOP_DIR" "$STATE_DIR"
 
 say "installing $SRC"
-if [ "$SRC" = "$APP" ]; then
-    chmod +x "$APP"
-elif [ "$(dirname -- "$SRC")" = "$SCRIPT_DIR" ]; then
-    # build artifact next to the sources: move it, do not leave a second copy
-    mv -f "$SRC" "$APP"
-    chmod +x "$APP"
-    say "moved out of the source tree"
-else
+if [ "$SRC" != "$APP" ]; then
     install -m 755 "$SRC" "$APP"
-    chmod +x "$APP"
-    say "copied; the original file is left at $SRC"
 fi
+chmod +x "$APP"
+say "installed a copy; the original stays at $SRC"
 
 install_icon() {
     if [ -f "$SCRIPT_DIR/assets/vlswmplayer.png" ]; then

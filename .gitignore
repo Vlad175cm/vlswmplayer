@@ -12,3 +12,6 @@
 
 # internal design notes, kept locally
 /docs/
+
+# local release helper, never published
+/release.sh
