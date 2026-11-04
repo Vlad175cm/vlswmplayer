@@ -32,9 +32,13 @@ fetch() {
 
 download() {
     if command -v curl >/dev/null 2>&1; then
-        curl -fL --progress-bar -o "$2" "$1"
+        if [ -t 2 ]; then
+            curl -fL --progress-bar -o "$2" "$1"
+        else
+            curl -fsSL -o "$2" "$1"
+        fi
     else
-        wget -q --show-progress -O "$2" "$1"
+        wget -q -O "$2" "$1"
     fi
 }
 
