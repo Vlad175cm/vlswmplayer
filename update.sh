@@ -44,10 +44,11 @@ asset=$(printf '%s\n' "$json" | sed -n 's/.*"browser_download_url": *"\([^"]*x86
 [ -n "$latest" ] || die "no release found"
 [ -n "$asset" ] || die "release $latest has no x86_64 AppImage"
 
+latest_version=$(printf '%s' "$latest" | sed 's/^v//')
 current=$(cat "$VERSION_FILE" 2>/dev/null || echo "not installed")
 say "installed: $current"
-say "latest:    $latest"
-if [ "$current" = "$latest" ]; then
+say "latest:    $latest_version"
+if [ "$current" = "$latest_version" ]; then
     say "already up to date, reinstalling anyway"
 fi
 
@@ -93,12 +94,12 @@ Categories=AudioVideo;Audio;Player;
 StartupWMClass=vlswmplayer
 EOF
 chmod 644 "$DESKTOP_DIR/vlswmplayer.desktop"
-printf '%s\n' "$latest" > "$VERSION_FILE"
+printf '%s\n' "$latest_version" > "$VERSION_FILE"
 
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$DESKTOP_DIR" >/dev/null 2>&1 || true
 fi
 
 say ""
-say "updated to $latest"
+say "updated to $latest_version"
 say "cache and likes untouched"
