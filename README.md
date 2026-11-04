@@ -42,8 +42,34 @@ JetBrainsMono Nerd Font is bundled too.
 
 ## Install
 
-Download `vlswmplayer-1.0.0-x86_64.AppImage` from
-[Releases](https://github.com/Vlad175cm/vlswmplayer/releases), then:
+```bash
+git clone https://github.com/Vlad175cm/vlswmplayer.git
+cd vlswmplayer
+./install.sh
+```
+
+`install.sh` downloads the latest release and puts everything in place:
+
+- `~/.local/bin/vlswmplayer` — the AppImage itself, executable
+- `~/.local/share/applications/vlswmplayer.desktop` — visible in rofi, wofi,
+  quickshell and any other `.desktop` reader
+- `~/.local/share/icons/hicolor/256x256/apps/vlswmplayer.png`
+
+Pass a local file if you already downloaded one:
+`./install.sh ~/Downloads/vlswmplayer-1.0.0-x86_64.AppImage`.
+
+### Update
+
+```bash
+cd vlswmplayer
+./update.sh
+```
+
+It pulls the newest release from GitHub and replaces the binary, the desktop
+entry and the icon. Your likes (`~/.config/vlswmplayer`) and the track cache
+(`~/.cache/vlswmplayer`) are never touched.
+
+### Run without installing
 
 ```bash
 chmod +x vlswmplayer-1.0.0-x86_64.AppImage
@@ -54,13 +80,6 @@ If FUSE is not available:
 
 ```bash
 ./vlswmplayer-1.0.0-x86_64.AppImage --appimage-extract-and-run
-```
-
-To add it to the VLSWM launcher (`SUPER+D`), build it yourself and run:
-
-```bash
-bash scripts/build-appimage.sh
-bash scripts/install-desktop.sh
 ```
 
 ## Controls

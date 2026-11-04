@@ -37,8 +37,34 @@ JetBrainsMono Nerd Font тоже вшит.
 
 ## Установка
 
-Скачай `vlswmplayer-1.0.0-x86_64.AppImage` из
-[релизов](https://github.com/Vlad175cm/vlswmplayer/releases) и запусти:
+```bash
+git clone https://github.com/Vlad175cm/vlswmplayer.git
+cd vlswmplayer
+./install.sh
+```
+
+`install.sh` скачивает последний релиз и раскладывает всё по местам:
+
+- `~/.local/bin/vlswmplayer` — сам AppImage, уже исполняемый
+- `~/.local/share/applications/vlswmplayer.desktop` — виден в rofi, wofi,
+  quickshell и любом другом лаунчере, который читает `.desktop`
+- `~/.local/share/icons/hicolor/256x256/apps/vlswmplayer.png`
+
+Если файл уже скачан, можно указать его:
+`./install.sh ~/Downloads/vlswmplayer-1.0.0-x86_64.AppImage`.
+
+### Обновление
+
+```bash
+cd vlswmplayer
+./update.sh
+```
+
+Скрипт забирает свежий релиз с GitHub и заменяет бинарник, ярлык и иконку.
+Лайки (`~/.config/vlswmplayer`) и кеш треков (`~/.cache/vlswmplayer`) не
+трогаются.
+
+### Запуск без установки
 
 ```bash
 chmod +x vlswmplayer-1.0.0-x86_64.AppImage
@@ -49,13 +75,6 @@ chmod +x vlswmplayer-1.0.0-x86_64.AppImage
 
 ```bash
 ./vlswmplayer-1.0.0-x86_64.AppImage --appimage-extract-and-run
-```
-
-Чтобы добавить плеер в лаунчер VLSWM (`SUPER+D`), собери его сам и выполни:
-
-```bash
-bash scripts/build-appimage.sh
-bash scripts/install-desktop.sh
 ```
 
 ## Управление
