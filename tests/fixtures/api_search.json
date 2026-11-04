@@ -1,0 +1,56 @@
+{
+  "collection": [
+    {
+      "id": 2260087832,
+      "kind": "track",
+      "title": "Aphex Twin - Pulsewidth",
+      "duration": 228122,
+      "permalink_url": "https://soundcloud.com/idk/aphex-twin-pulsewidth",
+      "artwork_url": "https://i1.sndcdn.com/artworks-abc-large.png",
+      "track_authorization": "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.auth",
+      "user": {
+        "username": "idk"
+      },
+      "media": {
+        "transcodings": [
+          {
+            "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:2260087832/aaa",
+            "preset": "abr_sq",
+            "format": {
+              "protocol": "hls"
+            }
+          },
+          {
+            "url": "https://api-v2.soundcloud.com/media/soundcloud:tracks:2260087832/bbb",
+            "preset": "aac_160k",
+            "format": {
+              "protocol": "hls"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": 1,
+      "kind": "track",
+      "title": "No artwork",
+      "duration": 0,
+      "permalink_url": "https://soundcloud.com/x/no-artwork",
+      "artwork_url": null,
+      "user": {
+        "username": "x"
+      },
+      "media": {
+        "transcodings": [
+          {
+            "url": "https://api-v2.soundcloud.com/media/x",
+            "preset": "aac_96k",
+            "format": {
+              "protocol": "hls"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

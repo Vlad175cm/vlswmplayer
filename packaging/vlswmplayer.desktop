@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=vlswmplayer
+Comment=Minimal SoundCloud player for VLSWM
+Exec=vlswmplayer
+Icon=vlswmplayer
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=vlswmplayer

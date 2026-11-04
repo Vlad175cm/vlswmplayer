@@ -1,0 +1,32 @@
+{
+  "_type": "playlist",
+  "entries": [
+    {
+      "_type": "url",
+      "id": "2268857915",
+      "title": "Xtal",
+      "uploader": "aphextwin",
+      "duration": 293.0,
+      "url": "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A2268857915",
+      "thumbnails": [
+        { "url": "https://i1.sndcdn.com/a-small.png" },
+        { "url": "https://i1.sndcdn.com/a-original.png" }
+      ]
+    },
+    {
+      "_type": "url",
+      "id": "2260087832",
+      "title": "Pulsewidth",
+      "duration": 228.1,
+      "url": "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A2260087832",
+      "thumbnails": [{ "url": "https://i1.sndcdn.com/b-original.png" }]
+    },
+    {
+      "_type": "url",
+      "id": "1273084510",
+      "title": "180db",
+      "uploader": "*sigh*",
+      "url": "https://api.soundcloud.com/tracks/soundcloud%3Atracks%3A1273084510"
+    }
+  ]
+}

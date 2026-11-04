@@ -1,0 +1,14 @@
+/target
+/build
+/.superpowers/
+*.AppImage
+
+
+# Added by cargo
+#
+# already existing elements were commented out
+
+#/target
+
+# internal design notes, kept locally
+/docs/

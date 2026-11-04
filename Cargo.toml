@@ -1,0 +1,19 @@
+[package]
+name = "vlswmplayer"
+version = "1.0.0"
+edition = "2024"
+
+[dependencies]
+eframe = "0.37"
+egui = "0.37"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+rodio = "0.23"
+serde_json = "1"
+ureq = "3.5"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = true
+strip = true
