@@ -57,6 +57,8 @@ cd vlswmplayer
 
 Pass a local file if you already downloaded one:
 `./install.sh ~/Downloads/vlswmplayer-1.0.0-x86_64.AppImage`.
+A file built or found next to the sources is **moved**, so you never end up
+with two identical AppImages; an explicitly passed file is copied.
 
 ### Update
 
