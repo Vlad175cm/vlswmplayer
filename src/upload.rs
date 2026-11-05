@@ -103,6 +103,17 @@ pub fn load_from(base: &Path) -> Vec<Track> {
         .collect()
 }
 
+pub fn delete(track: &Track) {
+    if let Some(path) = &track.path {
+        let _ = std::fs::remove_file(path);
+    }
+    if let Some(artwork) = &track.artwork {
+        if let Some(path) = artwork.strip_prefix("file:") {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 pub fn save(tracks: &[Track]) -> std::io::Result<()> {
     save_to(&data_dir(), tracks)
 }
@@ -175,6 +186,52 @@ fn copy_with_progress(
     }
     output.flush()?;
     Ok(())
+}
+
+/// Rebuilds uploaded.json from the files already in the uploaded directory.
+pub fn rebuild_index() -> usize {
+    let base = data_dir();
+    let dir = base.join("uploaded");
+    let artwork_dir = base.join("artwork");
+    std::fs::create_dir_all(&artwork_dir).ok();
+
+    let mut tracks = Vec::new();
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return 0;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() || !ext_allowed(&path) {
+            continue;
+        }
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("track")
+            .to_owned();
+        let id = format!("local:{file_name}");
+        let (title, artist, duration, picture) = read_tags(&path);
+        let artwork = picture.and_then(|bytes| {
+            let target = artwork_dir.join(format!("{}.img", id.replace(':', "_")));
+            std::fs::write(&target, bytes).ok()?;
+            Some(format!("file:{}", target.display()))
+        });
+        tracks.push(Track {
+            id,
+            title,
+            artist,
+            duration,
+            url: path.to_string_lossy().into_owned(),
+            artwork,
+            media: Vec::new(),
+            track_authorization: String::new(),
+            path: Some(path),
+        });
+    }
+    tracks.sort_by(|a, b| a.title.to_lowercase().cmp(&b.title.to_lowercase()));
+    let count = tracks.len();
+    let _ = save_to(&base, &tracks);
+    count
 }
 
 /// Copies audio files into the app data directory and returns the new tracks.
@@ -337,5 +394,35 @@ mod tests {
         progress.done = 2;
         progress.fraction = 0.5;
         assert!((progress.overall() - 0.625).abs() < f32::EPSILON);
+    }
+}
+
+#[cfg(test)]
+mod delete_tests {
+    use super::*;
+
+    #[test]
+    fn deletes_file_and_artwork() {
+        let tmp = tempfile::tempdir().unwrap();
+        let audio = tmp.path().join("a.wav");
+        let art = tmp.path().join("a.img");
+        std::fs::write(&audio, b"x").unwrap();
+        std::fs::write(&art, b"y").unwrap();
+
+        let track = Track {
+            id: "local:a.wav".into(),
+            title: "a".into(),
+            artist: "b".into(),
+            duration: 1,
+            url: audio.to_string_lossy().into_owned(),
+            artwork: Some(format!("file:{}", art.display())),
+            media: Vec::new(),
+            track_authorization: String::new(),
+            path: Some(audio.clone()),
+        };
+
+        delete(&track);
+        assert!(!audio.exists());
+        assert!(!art.exists());
     }
 }

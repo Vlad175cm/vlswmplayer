@@ -264,6 +264,14 @@ impl Player {
         failed
     }
 
+    pub fn stop(&mut self) {
+        self.send(vec!["stop".into()]);
+        let mut state = self.shared.lock().unwrap();
+        state.idle = true;
+        state.position = 0;
+        state.duration = 0;
+    }
+
     pub fn quit(&mut self) {
         self.send(vec!["quit".into()]);
         let _ = self.child.wait();

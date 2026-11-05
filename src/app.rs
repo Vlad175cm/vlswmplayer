@@ -23,6 +23,7 @@ pub struct App {
     pub menu_open: bool,
     pub dialog: Option<DialogKind>,
     pub dialog_input: String,
+    pub pending_delete: Option<Track>,
     dialog_swallow: bool,
     pub progress: Arc<Mutex<upload::Progress>>,
     cache: cache::Cache,
@@ -40,6 +41,7 @@ pub enum DialogKind {
     AddFiles,
     ExportLikes,
     ImportLikes,
+    DeleteTrack,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -102,6 +104,7 @@ impl App {
             menu_open: false,
             dialog: None,
             dialog_input: String::new(),
+            pending_delete: None,
             dialog_swallow: false,
             progress: Arc::new(Mutex::new(upload::Progress::default())),
             cache: cache::Cache::new(),
@@ -415,6 +418,10 @@ impl App {
                             }
                             _ => {}
                         }
+                    } else if key == egui::Key::Delete
+                        && self.model.view == crate::model::View::Uploaded
+                    {
+                        self.open_delete_dialog();
                     } else if key == egui::Key::M {
                         self.menu_open = !self.menu_open;
                     } else if self.menu_open && key == egui::Key::Num1 {
@@ -592,16 +599,55 @@ impl App {
             DialogKind::ExportLikes | DialogKind::ImportLikes => {
                 "~/vlswmplayer-likes.json".to_owned()
             }
+            DialogKind::DeleteTrack => String::new(),
         };
+    }
+
+    fn open_delete_dialog(&mut self) {
+        let Some(track) = self.model.visible().get(self.model.selected).cloned() else {
+            return;
+        };
+        if track.path.is_none() {
+            return;
+        }
+        self.pending_delete = Some(track);
+        self.open_dialog(DialogKind::DeleteTrack);
+    }
+
+    fn confirm_delete(&mut self) {
+        let Some(track) = self.pending_delete.take() else { return };
+        upload::delete(&track);
+        self.model.uploaded.retain(|item| item.id != track.id);
+        let _ = upload::save(&self.model.uploaded);
+        if self.model.current.as_ref().map(|c| c.id == track.id).unwrap_or(false) {
+            if let Some(player) = self.player.as_mut() {
+                player.stop();
+            }
+            self.model.current = None;
+            self.model.status = Some("REMOVED".to_owned());
+        } else {
+            self.model.status = Some("REMOVED".to_owned());
+        }
+        let len = self.model.uploaded.len();
+        if self.model.selected >= len {
+            self.model.selected = len.saturating_sub(1);
+        }
+        self.ensure_visible();
     }
 
     fn cancel_dialog(&mut self) {
         self.dialog = None;
         self.dialog_input.clear();
+        self.pending_delete = None;
     }
 
     fn confirm_dialog(&mut self, ctx: &egui::Context) {
         let Some(kind) = self.dialog else { return };
+        if kind == DialogKind::DeleteTrack {
+            self.dialog = None;
+            self.confirm_delete();
+            return;
+        }
         let raw = self.dialog_input.trim().to_owned();
         self.cancel_dialog();
         if raw.is_empty() {
@@ -635,6 +681,7 @@ impl App {
                     },
                 );
             }
+            DialogKind::DeleteTrack => {}
             DialogKind::ImportLikes => {
                 match library::import(&path) {
                     Ok(tracks) => {

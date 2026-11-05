@@ -301,6 +301,7 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
             DialogKind::AddFiles => "ADD LOCAL FILES",
             DialogKind::ExportLikes => "EXPORT LIKES",
             DialogKind::ImportLikes => "IMPORT LIKES",
+            DialogKind::DeleteTrack => "REMOVE TRACK?",
         };
         text_at(
             &p,
@@ -311,25 +312,41 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
             pal.fg,
         );
 
-        let input = Rect::from_min_size(
-            Pos2::new(panel.left() + 14.0, panel.top() + 34.0),
-            Vec2::new(width - 28.0, 30.0),
-        );
-        p.rect_stroke(
-            input,
-            CornerRadius::ZERO,
-            Stroke::new(1.0, pal.fg),
-            StrokeKind::Inside,
-        );
-        let shown = elide(&p, &app.dialog_input, 12.0, input.width() - 20.0);
-        text_at(
-            &p,
-            Pos2::new(input.left() + 8.0, input.center().y),
-            Align2::LEFT_CENTER,
-            &shown,
-            12.0,
-            pal.fg,
-        );
+        if kind == DialogKind::DeleteTrack {
+            let name = app
+                .pending_delete
+                .as_ref()
+                .map(|track| track.title.clone())
+                .unwrap_or_default();
+            text_at(
+                &p,
+                Pos2::new(panel.left() + 14.0, panel.top() + 38.0),
+                Align2::LEFT_TOP,
+                &elide(&p, &name, 13.0, width - 28.0),
+                13.0,
+                pal.fg,
+            );
+        } else {
+            let input = Rect::from_min_size(
+                Pos2::new(panel.left() + 14.0, panel.top() + 34.0),
+                Vec2::new(width - 28.0, 30.0),
+            );
+            p.rect_stroke(
+                input,
+                CornerRadius::ZERO,
+                Stroke::new(1.0, pal.fg),
+                StrokeKind::Inside,
+            );
+            let shown = elide(&p, &app.dialog_input, 12.0, input.width() - 20.0);
+            text_at(
+                &p,
+                Pos2::new(input.left() + 8.0, input.center().y),
+                Align2::LEFT_CENTER,
+                &shown,
+                12.0,
+                pal.fg,
+            );
+        }
 
         text_at(
             &p,
@@ -348,7 +365,8 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
             Pos2::new(panel.right() - 84.0, panel.bottom() - 36.0),
             Vec2::new(70.0, 26.0),
         );
-        button(&p, ok, "OK", true, &pal);
+        let confirm_label = if kind == DialogKind::DeleteTrack { "YES" } else { "OK" };
+        button(&p, ok, confirm_label, true, &pal);
         button(&p, cancel, "CANCEL", false, &pal);
         hits.dialog_confirm = Some(ok);
         hits.dialog_cancel = Some(cancel);
