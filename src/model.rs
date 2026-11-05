@@ -24,7 +24,6 @@ pub enum Msg {
     Uploaded {
         added: Vec<Track>,
     },
-    Status(String),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -95,7 +94,7 @@ impl Model {
             Msg::StreamReady { .. }
             | Msg::CacheDone { .. }
             | Msg::Uploaded { .. }
-            | Msg::Status(_) => None,
+            => None,
             Msg::ArtworkDone { id, result } => {
                 if let (Some(current), Ok(image)) = (&self.current, result) {
                     if current.id == id {

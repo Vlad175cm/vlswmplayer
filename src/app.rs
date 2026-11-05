@@ -684,7 +684,6 @@ impl App {
                         self.ensure_visible();
                     }
                 }
-                Msg::Status(text) => self.model.status = Some(text),
                 Msg::CacheDone { id, result } => {
                     self.downloading.remove(&id);
                     if result.is_err() {
