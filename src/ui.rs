@@ -1,4 +1,4 @@
-use crate::app::App;
+use crate::app::{App, DialogKind};
 use crate::likes;
 use crate::model::View;
 use crate::util::format_time;
@@ -22,7 +22,12 @@ pub struct Hits {
     pub play: Option<Rect>,
     pub next: Option<Rect>,
     pub rows: Vec<(usize, Rect)>,
-    pub tabs: Option<(Rect, Rect)>,
+    pub tabs: Vec<(View, Rect)>,
+    pub menu_button: Option<Rect>,
+    pub menu_panel: Option<Rect>,
+    pub menu_items: Vec<Rect>,
+    pub dialog_confirm: Option<Rect>,
+    pub dialog_cancel: Option<Rect>,
     pub list: Option<Rect>,
     pub capacity: usize,
 }
@@ -169,9 +174,24 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
         12.0,
         pal.fg,
     );
+    let menu_rect = Rect::from_min_size(
+        Pos2::new(header.right() - PAD - 24.0, header.center().y - 11.0),
+        Vec2::new(24.0, 22.0),
+    );
+    for i in 0..3 {
+        let y = menu_rect.center().y - 6.0 + i as f32 * 6.0;
+        p.line_segment(
+            [
+                Pos2::new(menu_rect.left() + 4.0, y),
+                Pos2::new(menu_rect.right() - 4.0, y),
+            ],
+            Stroke::new(2.0, pal.fg),
+        );
+    }
+    hits.menu_button = Some(menu_rect);
     text_at(
         &p,
-        Pos2::new(header.right() - PAD, header.center().y),
+        Pos2::new(menu_rect.left() - 14.0, header.center().y),
         Align2::RIGHT_CENTER,
         &app.hostname,
         12.0,
@@ -190,7 +210,7 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
     draw_now_playing(app, &p, &pal, body, split, &mut hits);
     draw_search(app, &p, &pal, body, split, &mut hits, time);
 
-    let hints = "SPACE play  ←/→ track  ↑/↓ vol  TAB tab  F like  ^⇧C cache  / search  Q quit";
+    let hints = "SPACE play  ←/→ track  ↑/↓ vol  TAB tab  F like  M menu  ^⇧C cache  / search  Q quit";
     let left = Pos2::new(footer.left() + PAD, footer.center().y);
     let status = match (&app.model.status, &app.model.searching) {
         (Some(s), _) => Some(s.clone()),
@@ -209,6 +229,129 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
             11.0,
             pal.fg,
         );
+    }
+
+    let progress = app.upload_progress();
+    if progress.active {
+        let label = format!(
+            "UPLOADING {}/{}  {}",
+            progress.done.min(progress.total),
+            progress.total,
+            progress.current
+        );
+        text_at(
+            &p,
+            Pos2::new(full.left() + PAD, footer.top() - 34.0),
+            Align2::LEFT_BOTTOM,
+            &label,
+            10.0,
+            pal.fg,
+        );
+        let rect = Rect::from_min_size(
+            Pos2::new(full.left() + PAD, footer.top() - 24.0),
+            Vec2::new(full.width() - PAD * 2.0, 10.0),
+        );
+        bar(&p, rect, progress.overall(), &pal);
+    }
+
+    if app.menu_open {
+        let width = 210.0;
+        let panel = Rect::from_min_size(
+            Pos2::new(full.right() - PAD - width, header.bottom() + 4.0),
+            Vec2::new(width, 80.0),
+        );
+        p.rect_filled(panel, CornerRadius::ZERO, pal.bg);
+        p.rect_stroke(
+            panel,
+            CornerRadius::ZERO,
+            Stroke::new(1.0, pal.fg),
+            StrokeKind::Inside,
+        );
+        for (index, label) in ["ADD LOCAL FILES", "EXPORT LIKES", "IMPORT LIKES"].iter().enumerate() {
+            let item = Rect::from_min_size(
+                Pos2::new(panel.left() + 1.0, panel.top() + 1.0 + index as f32 * 26.0),
+                Vec2::new(width - 2.0, 26.0),
+            );
+            text_at(
+                &p,
+                Pos2::new(item.left() + 10.0, item.center().y),
+                Align2::LEFT_CENTER,
+                label,
+                11.0,
+                pal.fg,
+            );
+            hits.menu_items.push(item);
+        }
+        hits.menu_panel = Some(panel);
+    }
+
+    if let Some(kind) = app.dialog {
+        let width = 560.0;
+        let height = 116.0;
+        let panel = Rect::from_center_size(full.center(), Vec2::new(width, height));
+        p.rect_filled(panel, CornerRadius::ZERO, pal.bg);
+        p.rect_stroke(
+            panel,
+            CornerRadius::ZERO,
+            Stroke::new(1.0, pal.fg),
+            StrokeKind::Inside,
+        );
+
+        let title = match kind {
+            DialogKind::AddFiles => "ADD LOCAL FILES",
+            DialogKind::ExportLikes => "EXPORT LIKES",
+            DialogKind::ImportLikes => "IMPORT LIKES",
+        };
+        text_at(
+            &p,
+            Pos2::new(panel.left() + 14.0, panel.top() + 12.0),
+            Align2::LEFT_TOP,
+            title,
+            11.0,
+            pal.fg,
+        );
+
+        let input = Rect::from_min_size(
+            Pos2::new(panel.left() + 14.0, panel.top() + 34.0),
+            Vec2::new(width - 28.0, 30.0),
+        );
+        p.rect_stroke(
+            input,
+            CornerRadius::ZERO,
+            Stroke::new(1.0, pal.fg),
+            StrokeKind::Inside,
+        );
+        let shown = elide(&p, &app.dialog_input, 12.0, input.width() - 20.0);
+        text_at(
+            &p,
+            Pos2::new(input.left() + 8.0, input.center().y),
+            Align2::LEFT_CENTER,
+            &shown,
+            12.0,
+            pal.fg,
+        );
+
+        text_at(
+            &p,
+            Pos2::new(panel.left() + 14.0, panel.bottom() - 20.0),
+            Align2::LEFT_BOTTOM,
+            "ENTER CONFIRM   ESC CANCEL",
+            10.0,
+            pal.fg,
+        );
+
+        let ok = Rect::from_min_size(
+            Pos2::new(panel.right() - 154.0, panel.bottom() - 36.0),
+            Vec2::new(62.0, 26.0),
+        );
+        let cancel = Rect::from_min_size(
+            Pos2::new(panel.right() - 84.0, panel.bottom() - 36.0),
+            Vec2::new(70.0, 26.0),
+        );
+        button(&p, ok, "OK", true, &pal);
+        button(&p, cancel, "CANCEL", false, &pal);
+        hits.dialog_confirm = Some(ok);
+        hits.dialog_cancel = Some(cancel);
     }
 
     app.hits = hits;
@@ -357,11 +500,21 @@ fn draw_search(
     let mut y = body.top() + 14.0;
 
     let tab_w = 92.0;
-    let search_tab = Rect::from_min_size(Pos2::new(x, y), Vec2::new(tab_w, 24.0));
-    let likes_tab = Rect::from_min_size(Pos2::new(x + tab_w, y), Vec2::new(tab_w, 24.0));
-    tab(p, search_tab, "SEARCH", app.model.view == View::Search, pal);
-    tab(p, likes_tab, "LIKES", app.model.view == View::Likes, pal);
-    hits.tabs = Some((search_tab, likes_tab));
+    for (index, (view, title)) in [
+        (View::Search, "SEARCH"),
+        (View::Likes, "LIKES"),
+        (View::Uploaded, "UPLOADED"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let rect = Rect::from_min_size(
+            Pos2::new(x + index as f32 * tab_w, y),
+            Vec2::new(tab_w, 24.0),
+        );
+        tab(p, rect, title, app.model.view == view, pal);
+        hits.tabs.push((view, rect));
+    }
     y += 24.0 + 14.0;
 
     let search = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, 32.0));

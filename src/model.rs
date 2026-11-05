@@ -21,12 +21,17 @@ pub enum Msg {
         id: String,
         result: Result<(), String>,
     },
+    Uploaded {
+        added: Vec<Track>,
+    },
+    Status(String),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum View {
     Search,
     Likes,
+    Uploaded,
 }
 
 pub struct Model {
@@ -41,6 +46,7 @@ pub struct Model {
     pub pending_artwork: Option<egui::ColorImage>,
     pub view: View,
     pub liked: Vec<Track>,
+    pub uploaded: Vec<Track>,
     pub scroll: usize,
 }
 
@@ -58,6 +64,7 @@ impl Model {
             pending_artwork: None,
             view: View::Search,
             liked: Vec::new(),
+            uploaded: Vec::new(),
             scroll: 0,
         }
     }
@@ -85,7 +92,10 @@ impl Model {
                 }
                 None
             }
-            Msg::StreamReady { .. } | Msg::CacheDone { .. } => None,
+            Msg::StreamReady { .. }
+            | Msg::CacheDone { .. }
+            | Msg::Uploaded { .. }
+            | Msg::Status(_) => None,
             Msg::ArtworkDone { id, result } => {
                 if let (Some(current), Ok(image)) = (&self.current, result) {
                     if current.id == id {
@@ -108,6 +118,7 @@ impl Model {
         match self.view {
             View::Search => &self.results,
             View::Likes => &self.liked,
+            View::Uploaded => &self.uploaded,
         }
     }
 
@@ -139,13 +150,17 @@ impl Model {
     pub fn toggle_view(&mut self) {
         self.set_view(match self.view {
             View::Search => View::Likes,
-            View::Likes => View::Search,
+            View::Likes => View::Uploaded,
+            View::Uploaded => View::Search,
         });
     }
 
     /// Likes or unlikes the selected visible track. Returns the new state.
     pub fn toggle_like(&mut self) -> Option<bool> {
         let track = self.visible().get(self.selected)?.clone();
+        if track.path.is_some() {
+            return None;
+        }
         let liked = likes::toggle(&mut self.liked, &track);
         if self.view == View::Likes {
             self.selected = self.selected.min(self.liked.len().saturating_sub(1));

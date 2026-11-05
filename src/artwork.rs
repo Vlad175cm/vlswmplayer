@@ -9,6 +9,9 @@ pub fn decode(bytes: &[u8]) -> Result<egui::ColorImage, String> {
 }
 
 pub fn fetch(url: &str) -> Result<Vec<u8>, String> {
+    if let Some(path) = url.strip_prefix("file:") {
+        return std::fs::read(path).map_err(|e| e.to_string());
+    }
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(10)))
         .build()

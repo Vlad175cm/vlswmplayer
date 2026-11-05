@@ -1,12 +1,13 @@
 [package]
 name = "vlswmplayer"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 
 [dependencies]
 eframe = "0.37"
 egui = "0.37"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+lofty = "0.25"
 rodio = "0.23"
 serde_json = "1"
 ureq = "3.5"

@@ -2,10 +2,11 @@ use crate::input::Action;
 use crate::model::{self, Model, Msg};
 use crate::sc::{self, Track};
 use crate::theme;
-use crate::{artwork, cache, config, input, likes, mpv, ui};
+use crate::{artwork, cache, config, input, library, likes, mpv, ui, upload};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub struct App {
@@ -19,6 +20,11 @@ pub struct App {
     pub search_focus: bool,
     pub last_edit: Option<Instant>,
     pub hits: ui::Hits,
+    pub menu_open: bool,
+    pub dialog: Option<DialogKind>,
+    pub dialog_input: String,
+    dialog_swallow: bool,
+    pub progress: Arc<Mutex<upload::Progress>>,
     cache: cache::Cache,
     downloading: HashSet<String>,
     download_serial: u64,
@@ -27,6 +33,13 @@ pub struct App {
     zoom_done: bool,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum DialogKind {
+    AddFiles,
+    ExportLikes,
+    ImportLikes,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -61,6 +74,7 @@ impl App {
         let cfg = config::Config::load(&config::default_path());
         let mut model = Model::new();
         model.query = cfg.last_query.clone();
+        model.uploaded = upload::load();
 
         let player = mpv::Player::new(cfg.volume).ok();
         model.liked = likes::load(&likes::default_path());
@@ -85,6 +99,11 @@ impl App {
             search_focus: false,
             last_edit: None,
             hits: ui::Hits::default(),
+            menu_open: false,
+            dialog: None,
+            dialog_input: String::new(),
+            dialog_swallow: false,
+            progress: Arc::new(Mutex::new(upload::Progress::default())),
             cache: cache::Cache::new(),
             downloading: HashSet::new(),
             download_serial: 0,
@@ -127,6 +146,18 @@ impl App {
             self.model.status = Some("YT-DLP NOT FOUND".to_owned());
             return;
         };
+        if let Some(path) = track.path.clone() {
+            self.model.download_gen += 1;
+            self.model.current = Some(track.clone());
+            self.model.status = None;
+            self.artwork = None;
+            if let Some(player) = self.player.as_mut() {
+                player.load(&path.to_string_lossy());
+            }
+            self.spawn_artwork(&track, ctx);
+            return;
+        }
+
         if self.player.is_none() {
             match mpv::Player::new(self.cfg.volume) {
                 Ok(p) => self.player = Some(p),
@@ -165,16 +196,19 @@ impl App {
             }
         }
 
-        if let Some(url) = track.artwork.clone() {
-            let tx = self.tx.clone();
-            let ctx = ctx.clone();
-            let id = track.id.clone();
-            std::thread::spawn(move || {
-                let result = artwork::fetch(&url).and_then(|bytes| artwork::decode(&bytes));
-                let _ = tx.send(Msg::ArtworkDone { id, result });
-                ctx.request_repaint();
-            });
-        }
+        self.spawn_artwork(&track, ctx);
+    }
+
+    fn spawn_artwork(&self, track: &Track, ctx: &egui::Context) {
+        let Some(url) = track.artwork.clone() else { return };
+        let tx = self.tx.clone();
+        let ctx = ctx.clone();
+        let id = track.id.clone();
+        std::thread::spawn(move || {
+            let result = artwork::fetch(&url).and_then(|bytes| artwork::decode(&bytes));
+            let _ = tx.send(Msg::ArtworkDone { id, result });
+            ctx.request_repaint();
+        });
     }
 
     fn start_cache_download(&mut self, track: &Track, ytdlp: &PathBuf, ctx: &egui::Context) {
@@ -334,6 +368,15 @@ impl App {
         let events = ctx.input(|i| i.events.clone());
         for event in events {
             match event {
+                egui::Event::Text(text) if self.dialog.is_some() => {
+                    if self.dialog_swallow {
+                        self.dialog_swallow = false;
+                    } else {
+                        for ch in text.chars().filter(|c| !c.is_control()) {
+                            self.dialog_input.push(ch);
+                        }
+                    }
+                }
                 egui::Event::Text(text) if self.search_focus => {
                     let swallow = self.swallow_slash && text == "/";
                     self.swallow_slash = false;
@@ -350,7 +393,16 @@ impl App {
                     modifiers,
                     ..
                 } => {
-                    if self.search_focus {
+                    if self.dialog.is_some() {
+                        match key {
+                            egui::Key::Escape => self.cancel_dialog(),
+                            egui::Key::Enter => self.confirm_dialog(ctx),
+                            egui::Key::Backspace => {
+                                self.dialog_input.pop();
+                            }
+                            _ => {}
+                        }
+                    } else if self.search_focus {
                         match key {
                             egui::Key::Escape => self.search_focus = false,
                             egui::Key::Backspace => {
@@ -363,6 +415,17 @@ impl App {
                             }
                             _ => {}
                         }
+                    } else if key == egui::Key::M {
+                        self.menu_open = !self.menu_open;
+                    } else if self.menu_open && key == egui::Key::Num1 {
+                        self.open_dialog(DialogKind::AddFiles);
+                        self.dialog_swallow = true;
+                    } else if self.menu_open && key == egui::Key::Num2 {
+                        self.open_dialog(DialogKind::ExportLikes);
+                        self.dialog_swallow = true;
+                    } else if self.menu_open && key == egui::Key::Num3 {
+                        self.open_dialog(DialogKind::ImportLikes);
+                        self.dialog_swallow = true;
                     } else if modifiers.ctrl && modifiers.shift && key == egui::Key::C {
                         match self.cache.clear() {
                             Ok(_) => self.model.status = Some("CACHE CLEARED".to_owned()),
@@ -383,13 +446,49 @@ impl App {
 
         if pressed {
             if let Some(pos) = pos {
-                if let Some((search_tab, likes_tab)) = self.hits.tabs {
-                    if search_tab.contains(pos) {
-                        self.model.set_view(crate::model::View::Search);
+                if self.dialog.is_some() {
+                    if let Some(rect) = self.hits.dialog_confirm {
+                        if rect.contains(pos) {
+                            self.confirm_dialog(ctx);
+                            return;
+                        }
+                    }
+                    if let Some(rect) = self.hits.dialog_cancel {
+                        if rect.contains(pos) {
+                            self.cancel_dialog();
+                            return;
+                        }
+                    }
+                    return;
+                }
+
+                if let Some(rect) = self.hits.menu_button {
+                    if rect.contains(pos) {
+                        self.menu_open = !self.menu_open;
                         return;
                     }
-                    if likes_tab.contains(pos) {
-                        self.model.set_view(crate::model::View::Likes);
+                }
+                if self.menu_open {
+                    let items = self.hits.menu_items.clone();
+                    for (index, rect) in items.iter().enumerate() {
+                        if rect.contains(pos) {
+                            self.menu_open = false;
+                            match index {
+                                0 => self.open_dialog(DialogKind::AddFiles),
+                                1 => self.open_dialog(DialogKind::ExportLikes),
+                                2 => self.open_dialog(DialogKind::ImportLikes),
+                                _ => {}
+                            }
+                            return;
+                        }
+                    }
+                    self.menu_open = false;
+                }
+
+                for (view, rect) in self.hits.tabs.clone() {
+                    if rect.contains(pos) {
+                        self.model.set_view(view);
+                        self.ensure_visible();
                         return;
                     }
                 }
@@ -478,6 +577,77 @@ impl App {
         }
     }
 
+    pub fn upload_progress(&self) -> upload::Progress {
+        self.progress
+            .lock()
+            .map(|state| state.clone())
+            .unwrap_or_default()
+    }
+
+    fn open_dialog(&mut self, kind: DialogKind) {
+        self.menu_open = false;
+        self.dialog = Some(kind);
+        self.dialog_input = match kind {
+            DialogKind::AddFiles => "~/Music".to_owned(),
+            DialogKind::ExportLikes | DialogKind::ImportLikes => {
+                "~/vlswmplayer-likes.json".to_owned()
+            }
+        };
+    }
+
+    fn cancel_dialog(&mut self) {
+        self.dialog = None;
+        self.dialog_input.clear();
+    }
+
+    fn confirm_dialog(&mut self, ctx: &egui::Context) {
+        let Some(kind) = self.dialog else { return };
+        let raw = self.dialog_input.trim().to_owned();
+        self.cancel_dialog();
+        if raw.is_empty() {
+            return;
+        }
+        let path = expand_home(&raw);
+
+        match kind {
+            DialogKind::AddFiles => {
+                let files = collect_audio(&path);
+                if files.is_empty() {
+                    self.model.status = Some("NO AUDIO FILES".to_owned());
+                    return;
+                }
+                let existing = self.model.uploaded.clone();
+                let progress = Arc::clone(&self.progress);
+                let tx = self.tx.clone();
+                let ctx = ctx.clone();
+                std::thread::spawn(move || {
+                    let added = upload::import(&files, &existing, &progress);
+                    let _ = tx.send(Msg::Uploaded { added });
+                    ctx.request_repaint();
+                });
+            }
+            DialogKind::ExportLikes => {
+                let tracks = self.model.liked.clone();
+                self.model.status = Some(
+                    match library::export(&path, &tracks) {
+                        Ok(()) => "EXPORTED".to_owned(),
+                        Err(_) => "EXPORT FAILED".to_owned(),
+                    },
+                );
+            }
+            DialogKind::ImportLikes => {
+                match library::import(&path) {
+                    Ok(tracks) => {
+                        let added = library::merge(&mut self.model.liked, tracks);
+                        let _ = likes::save(&likes::default_path(), &self.model.liked);
+                        self.model.status = Some(format!("IMPORTED {added}"));
+                    }
+                    Err(_) => self.model.status = Some("IMPORT FAILED".to_owned()),
+                }
+            }
+        }
+    }
+
     fn pump(&mut self, ctx: &egui::Context) {
         let messages: Vec<Msg> = self.rx.try_iter().collect();
         for message in messages {
@@ -504,6 +674,17 @@ impl App {
                         }
                     }
                 }
+                Msg::Uploaded { added } => {
+                    let count = added.len();
+                    self.model.uploaded.extend(added);
+                    let _ = upload::save(&self.model.uploaded);
+                    self.model.status = Some(format!("ADDED {count}"));
+                    if count > 0 && self.model.view != crate::model::View::Uploaded {
+                        self.model.set_view(crate::model::View::Uploaded);
+                        self.ensure_visible();
+                    }
+                }
+                Msg::Status(text) => self.model.status = Some(text),
                 Msg::CacheDone { id, result } => {
                     self.downloading.remove(&id);
                     if result.is_err() {
@@ -573,4 +754,43 @@ impl eframe::App for App {
         }
         self.save_config();
     }
+}
+
+fn expand_home(path: &str) -> std::path::PathBuf {
+    if let Some(rest) = path.strip_prefix("~/") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return std::path::PathBuf::from(home).join(rest);
+        }
+    }
+    std::path::PathBuf::from(path)
+}
+
+fn collect_audio(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    fn walk(dir: &std::path::Path, depth: usize, out: &mut Vec<std::path::PathBuf>) {
+        if depth > 6 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, depth + 1, out);
+            } else if path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| upload::EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
+                .unwrap_or(false)
+            {
+                out.push(path);
+            }
+        }
+    }
+    let mut out = Vec::new();
+    if root.is_dir() {
+        walk(root, 0, &mut out);
+    } else if root.is_file() {
+        out.push(root.to_path_buf());
+    }
+    out.sort();
+    out
 }

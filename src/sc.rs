@@ -18,6 +18,7 @@ pub struct Track {
     pub artwork: Option<String>,
     pub media: Vec<Transcoding>,
     pub track_authorization: String,
+    pub path: Option<std::path::PathBuf>,
 }
 
 impl Default for Track {
@@ -31,6 +32,7 @@ impl Default for Track {
             artwork: None,
             media: Vec::new(),
             track_authorization: String::new(),
+            path: None,
         }
     }
 }
@@ -83,6 +85,7 @@ pub fn parse_search(json: &str) -> Result<Vec<Track>, String> {
             artwork,
             media: Vec::new(),
             track_authorization: String::new(),
+            path: None,
         });
     }
     Ok(tracks)
@@ -283,6 +286,7 @@ fn track_from_api(item: &Value) -> Option<Track> {
         track_authorization: text(item.get("track_authorization"))
             .unwrap_or("")
             .to_owned(),
+        path: None,
     })
 }
 
