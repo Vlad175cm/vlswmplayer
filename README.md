@@ -22,6 +22,10 @@ a separate app on top of it.
 - **Caches what you play.** First play streams and downloads in the
   background; every next play starts from disk in well under a second.
 - **Likes** — a local JSON list, a separate `LIKES` tab, `*` marker on rows.
+- **Local files** — an `UPLOADED` tab for your own audio. Files are copied into
+  the app directory, tags and cover art are read from the file.
+- **Portable library** — the hamburger menu exports and imports likes as one
+  JSON file, so the same library moves between Linux and iOS.
 - **Follows the shell theme.** Reads the file VLSWM writes on `SUPER+T`, so the
   player flips between black and white together with the rest of the desktop.
 - **Keyboard first**, mouse optional.
@@ -91,8 +95,10 @@ If FUSE is not available:
 | `←` / `→` | previous / next track |
 | `SHIFT+←` / `SHIFT+→` | seek ∓5 s |
 | `↑` / `↓` | volume ±5 |
-| `TAB` | switch `SEARCH` / `LIKES` |
+| `TAB` | switch `SEARCH` / `LIKES` / `UPLOADED` |
 | `F` | like or unlike the selected track |
+| `M` | open the menu (add local files, export or import likes) |
+| `1` / `2` / `3` | menu items while the menu is open |
 | `CTRL+SHIFT+C` | clear the track cache |
 | `/` | focus the search field |
 | `ENTER` | play the selected track |
@@ -108,6 +114,8 @@ scrolls the list.
 | `~/.config/vlswmplayer/config` | volume, last query, UI scale |
 | `~/.config/vlswmplayer/likes.json` | liked tracks |
 | `~/.cache/vlswmplayer/tracks/` | cached audio, one file per track |
+| `~/.local/share/vlswmplayer/uploaded/` | your own audio files |
+| `~/.local/share/vlswmplayer/uploaded.json` | index of the uploaded files |
 
 Config example:
 
