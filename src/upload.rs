@@ -40,18 +40,6 @@ pub fn data_dir() -> PathBuf {
     PathBuf::from("/tmp/vlswmplayer")
 }
 
-pub fn tracks_dir() -> PathBuf {
-    data_dir().join("uploaded")
-}
-
-pub fn artwork_dir() -> PathBuf {
-    data_dir().join("artwork")
-}
-
-pub fn index_path() -> PathBuf {
-    data_dir().join("uploaded.json")
-}
-
 fn to_value(track: &Track) -> serde_json::Value {
     serde_json::json!({
         "id": track.id,
