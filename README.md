@@ -15,10 +15,11 @@ a separate app on top of it.
 
 ## What it does
 
-- **ZEN** — a personal SoundCloud wave built from your likes. It groups liked
-  tracks into broad genres, pulls similar tracks through SoundCloud's related
-  endpoint and genre search, never repeats a track, and keeps the same artist
-  out of the last ten tracks.
+- **ZEN** — my personal SoundCloud wave, built from the tracks I like. I group
+  them into broad genres, pull similar tracks through SoundCloud's related
+  endpoint and genre search, never repeat a track, and keep the same artist out
+  of the last ten tracks. It is my attempt at a Yandex Music "My Wave" for
+  SoundCloud.
 - **Search** SoundCloud tracks without logging in, through the same public
   `api-v2` endpoint the web player uses.
 - **Streams instantly** — the resolved HLS stream goes straight to `mpv`,
@@ -31,6 +32,8 @@ a separate app on top of it.
 - **Follows the shell theme.** Reads the file VLSWM writes on `SUPER+T`, so the
   player flips between black and white together with the rest of the desktop.
 - **Keyboard first**, mouse optional.
+
+I removed the local-file uploader: the player is SoundCloud-only now.
 
 ## Screens
 
