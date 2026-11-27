@@ -67,7 +67,6 @@ pub fn import(path: &Path) -> Result<Vec<Track>, String> {
                     .map(str::to_owned),
                 media: Vec::new(),
                 track_authorization: String::new(),
-                path: None,
             })
         })
         .collect())

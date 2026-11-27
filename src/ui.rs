@@ -231,34 +231,11 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
         );
     }
 
-    let progress = app.upload_progress();
-    if progress.active {
-        let label = format!(
-            "UPLOADING {}/{}  {}",
-            progress.done.min(progress.total),
-            progress.total,
-            progress.current
-        );
-        text_at(
-            &p,
-            Pos2::new(full.left() + PAD, footer.top() - 34.0),
-            Align2::LEFT_BOTTOM,
-            &label,
-            10.0,
-            pal.fg,
-        );
-        let rect = Rect::from_min_size(
-            Pos2::new(full.left() + PAD, footer.top() - 24.0),
-            Vec2::new(full.width() - PAD * 2.0, 10.0),
-        );
-        bar(&p, rect, progress.overall(), &pal);
-    }
-
     if app.menu_open {
         let width = 210.0;
         let panel = Rect::from_min_size(
             Pos2::new(full.right() - PAD - width, header.bottom() + 4.0),
-            Vec2::new(width, 80.0),
+            Vec2::new(width, 54.0),
         );
         p.rect_filled(panel, CornerRadius::ZERO, pal.bg);
         p.rect_stroke(
@@ -267,7 +244,7 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
             Stroke::new(1.0, pal.fg),
             StrokeKind::Inside,
         );
-        for (index, label) in ["ADD LOCAL FILES", "EXPORT LIKES", "IMPORT LIKES"].iter().enumerate() {
+        for (index, label) in ["EXPORT LIKES", "IMPORT LIKES"].iter().enumerate() {
             let item = Rect::from_min_size(
                 Pos2::new(panel.left() + 1.0, panel.top() + 1.0 + index as f32 * 26.0),
                 Vec2::new(width - 2.0, 26.0),
@@ -298,10 +275,8 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
         );
 
         let title = match kind {
-            DialogKind::AddFiles => "ADD LOCAL FILES",
             DialogKind::ExportLikes => "EXPORT LIKES",
             DialogKind::ImportLikes => "IMPORT LIKES",
-            DialogKind::DeleteTrack => "REMOVE TRACK?",
         };
         text_at(
             &p,
@@ -312,41 +287,25 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
             pal.fg,
         );
 
-        if kind == DialogKind::DeleteTrack {
-            let name = app
-                .pending_delete
-                .as_ref()
-                .map(|track| track.title.clone())
-                .unwrap_or_default();
-            text_at(
-                &p,
-                Pos2::new(panel.left() + 14.0, panel.top() + 38.0),
-                Align2::LEFT_TOP,
-                &elide(&p, &name, 13.0, width - 28.0),
-                13.0,
-                pal.fg,
-            );
-        } else {
-            let input = Rect::from_min_size(
-                Pos2::new(panel.left() + 14.0, panel.top() + 34.0),
-                Vec2::new(width - 28.0, 30.0),
-            );
-            p.rect_stroke(
-                input,
-                CornerRadius::ZERO,
-                Stroke::new(1.0, pal.fg),
-                StrokeKind::Inside,
-            );
-            let shown = elide(&p, &app.dialog_input, 12.0, input.width() - 20.0);
-            text_at(
-                &p,
-                Pos2::new(input.left() + 8.0, input.center().y),
-                Align2::LEFT_CENTER,
-                &shown,
-                12.0,
-                pal.fg,
-            );
-        }
+        let input = Rect::from_min_size(
+            Pos2::new(panel.left() + 14.0, panel.top() + 34.0),
+            Vec2::new(width - 28.0, 30.0),
+        );
+        p.rect_stroke(
+            input,
+            CornerRadius::ZERO,
+            Stroke::new(1.0, pal.fg),
+            StrokeKind::Inside,
+        );
+        let shown = elide(&p, &app.dialog_input, 12.0, input.width() - 20.0);
+        text_at(
+            &p,
+            Pos2::new(input.left() + 8.0, input.center().y),
+            Align2::LEFT_CENTER,
+            &shown,
+            12.0,
+            pal.fg,
+        );
 
         text_at(
             &p,
@@ -365,8 +324,7 @@ pub fn draw(app: &mut App, ui: &mut egui::Ui) {
             Pos2::new(panel.right() - 84.0, panel.bottom() - 36.0),
             Vec2::new(70.0, 26.0),
         );
-        let confirm_label = if kind == DialogKind::DeleteTrack { "YES" } else { "OK" };
-        button(&p, ok, confirm_label, true, &pal);
+        button(&p, ok, "OK", true, &pal);
         button(&p, cancel, "CANCEL", false, &pal);
         hits.dialog_confirm = Some(ok);
         hits.dialog_cancel = Some(cancel);
@@ -521,7 +479,6 @@ fn draw_search(
     for (index, (view, title)) in [
         (View::Search, "SEARCH"),
         (View::Likes, "LIKES"),
-        (View::Uploaded, "UPLOADED"),
     ]
     .into_iter()
     .enumerate()

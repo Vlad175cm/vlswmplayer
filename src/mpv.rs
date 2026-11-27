@@ -265,6 +265,7 @@ impl Player {
     }
 
     pub fn stop(&mut self) {
+        self.loaded.store(false, Ordering::Relaxed);
         self.send(vec!["stop".into()]);
         let mut state = self.shared.lock().unwrap();
         state.idle = true;

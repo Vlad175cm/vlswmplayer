@@ -21,16 +21,12 @@ pub enum Msg {
         id: String,
         result: Result<(), String>,
     },
-    Uploaded {
-        added: Vec<Track>,
-    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum View {
     Search,
     Likes,
-    Uploaded,
 }
 
 pub struct Model {
@@ -45,7 +41,6 @@ pub struct Model {
     pub pending_artwork: Option<egui::ColorImage>,
     pub view: View,
     pub liked: Vec<Track>,
-    pub uploaded: Vec<Track>,
     pub scroll: usize,
 }
 
@@ -63,7 +58,6 @@ impl Model {
             pending_artwork: None,
             view: View::Search,
             liked: Vec::new(),
-            uploaded: Vec::new(),
             scroll: 0,
         }
     }
@@ -91,10 +85,7 @@ impl Model {
                 }
                 None
             }
-            Msg::StreamReady { .. }
-            | Msg::CacheDone { .. }
-            | Msg::Uploaded { .. }
-            => None,
+            Msg::StreamReady { .. } | Msg::CacheDone { .. } => None,
             Msg::ArtworkDone { id, result } => {
                 if let (Some(current), Ok(image)) = (&self.current, result) {
                     if current.id == id {
@@ -107,17 +98,17 @@ impl Model {
     }
 
     pub fn select(&mut self, index: usize) {
-        if index < self.results.len() {
-            self.selected = index;
-            self.current = Some(self.results[index].clone());
-        }
+        let Some(track) = self.visible().get(index).cloned() else {
+            return;
+        };
+        self.selected = index;
+        self.current = Some(track);
     }
 
     pub fn visible(&self) -> &[Track] {
         match self.view {
             View::Search => &self.results,
             View::Likes => &self.liked,
-            View::Uploaded => &self.uploaded,
         }
     }
 
@@ -149,22 +140,28 @@ impl Model {
     pub fn toggle_view(&mut self) {
         self.set_view(match self.view {
             View::Search => View::Likes,
-            View::Likes => View::Uploaded,
-            View::Uploaded => View::Search,
+            View::Likes => View::Search,
         });
     }
 
     /// Likes or unlikes the selected visible track. Returns the new state.
     pub fn toggle_like(&mut self) -> Option<bool> {
         let track = self.visible().get(self.selected)?.clone();
-        if track.path.is_some() {
-            return None;
-        }
         let liked = likes::toggle(&mut self.liked, &track);
         if self.view == View::Likes {
             self.selected = self.selected.min(self.liked.len().saturating_sub(1));
         }
         Some(liked)
+    }
+
+    /// Likes or unlikes the track that is actually playing.
+    pub fn toggle_like_current(&mut self) -> Option<(Track, bool)> {
+        let track = self.current.clone()?;
+        let liked = likes::toggle(&mut self.liked, &track);
+        if self.view == View::Likes {
+            self.selected = self.selected.min(self.liked.len().saturating_sub(1));
+        }
+        Some((track, liked))
     }
 
     pub fn next_track(&mut self) -> Option<Track> {
@@ -313,6 +310,27 @@ mod tests {
         m.results = vec![track("a")];
         m.set_view(View::Likes);
         assert_eq!(m.next_track().unwrap().title, "y");
+    }
+
+    #[test]
+    fn select_uses_the_visible_list() {
+        let mut m = Model::new();
+        m.results = vec![track("search")];
+        m.liked = (0..20).map(|i| track(&format!("like{i}"))).collect();
+        m.set_view(View::Likes);
+        m.select(15);
+        assert_eq!(m.selected, 15);
+        assert_eq!(m.current.as_ref().unwrap().title, "like15");
+    }
+
+    #[test]
+    fn select_ignores_out_of_range() {
+        let mut m = Model::new();
+        m.liked = vec![track("only")];
+        m.set_view(View::Likes);
+        m.select(5);
+        assert_eq!(m.selected, 0);
+        assert!(m.current.is_none());
     }
 
 }

@@ -2,11 +2,10 @@ use crate::input::Action;
 use crate::model::{self, Model, Msg};
 use crate::sc::{self, Track};
 use crate::theme;
-use crate::{artwork, cache, config, input, library, likes, mpv, ui, upload};
+use crate::{artwork, cache, config, input, library, likes, mpv, ui};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 pub struct App {
@@ -23,9 +22,7 @@ pub struct App {
     pub menu_open: bool,
     pub dialog: Option<DialogKind>,
     pub dialog_input: String,
-    pub pending_delete: Option<Track>,
     dialog_swallow: bool,
-    pub progress: Arc<Mutex<upload::Progress>>,
     cache: cache::Cache,
     downloading: HashSet<String>,
     download_serial: u64,
@@ -38,10 +35,8 @@ pub struct App {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DialogKind {
-    AddFiles,
     ExportLikes,
     ImportLikes,
-    DeleteTrack,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -76,7 +71,6 @@ impl App {
         let cfg = config::Config::load(&config::default_path());
         let mut model = Model::new();
         model.query = cfg.last_query.clone();
-        model.uploaded = upload::load();
 
         let player = mpv::Player::new(cfg.volume).ok();
         model.liked = likes::load(&likes::default_path());
@@ -104,9 +98,7 @@ impl App {
             menu_open: false,
             dialog: None,
             dialog_input: String::new(),
-            pending_delete: None,
             dialog_swallow: false,
-            progress: Arc::new(Mutex::new(upload::Progress::default())),
             cache: cache::Cache::new(),
             downloading: HashSet::new(),
             download_serial: 0,
@@ -145,22 +137,6 @@ impl App {
     }
 
     pub fn play_track(&mut self, track: Track, ctx: &egui::Context) {
-        let Some(ytdlp) = self.ytdlp.clone() else {
-            self.model.status = Some("YT-DLP NOT FOUND".to_owned());
-            return;
-        };
-        if let Some(path) = track.path.clone() {
-            self.model.download_gen += 1;
-            self.model.current = Some(track.clone());
-            self.model.status = None;
-            self.artwork = None;
-            if let Some(player) = self.player.as_mut() {
-                player.load(&path.to_string_lossy());
-            }
-            self.spawn_artwork(&track, ctx);
-            return;
-        }
-
         if self.player.is_none() {
             match mpv::Player::new(self.cfg.volume) {
                 Ok(p) => self.player = Some(p),
@@ -178,26 +154,31 @@ impl App {
         self.model.status = Some("LOADING".to_owned());
         self.artwork = None;
 
-        match self.cache.get(&track.id) {
-            Some(path) => {
-                self.model.status = None;
-                if let Some(player) = self.player.as_mut() {
-                    player.load(&path.to_string_lossy());
-                }
+        if let Some(path) = self.cache.get(&track.id) {
+            self.model.status = None;
+            if let Some(player) = self.player.as_mut() {
+                player.load(&path.to_string_lossy());
             }
-            None => {
-                self.start_cache_download(&track, &ytdlp, ctx);
-                let tx = self.tx.clone();
-                let ctx_done = ctx.clone();
-                let stream_track = track.clone();
-                std::thread::spawn(move || {
-                    let result = sc::stream_url(&stream_track, &ytdlp)
-                        .map(|url| (stream_track.clone(), url));
-                    let _ = tx.send(Msg::StreamReady { serial, result });
-                    ctx_done.request_repaint();
-                });
-            }
+            self.spawn_artwork(&track, ctx);
+            return;
         }
+
+        let Some(ytdlp) = self.ytdlp.clone() else {
+            self.model.status = Some("YT-DLP NOT FOUND".to_owned());
+            self.spawn_artwork(&track, ctx);
+            return;
+        };
+
+        self.start_cache_download(&track, &ytdlp, ctx);
+        let tx = self.tx.clone();
+        let ctx_done = ctx.clone();
+        let stream_track = track.clone();
+        std::thread::spawn(move || {
+            let result = sc::stream_url(&stream_track, &ytdlp)
+                .map(|url| (stream_track.clone(), url));
+            let _ = tx.send(Msg::StreamReady { serial, result });
+            ctx_done.request_repaint();
+        });
 
         self.spawn_artwork(&track, ctx);
     }
@@ -418,19 +399,12 @@ impl App {
                             }
                             _ => {}
                         }
-                    } else if key == egui::Key::Delete
-                        && self.model.view == crate::model::View::Uploaded
-                    {
-                        self.open_delete_dialog();
                     } else if key == egui::Key::M {
                         self.menu_open = !self.menu_open;
                     } else if self.menu_open && key == egui::Key::Num1 {
-                        self.open_dialog(DialogKind::AddFiles);
-                        self.dialog_swallow = true;
-                    } else if self.menu_open && key == egui::Key::Num2 {
                         self.open_dialog(DialogKind::ExportLikes);
                         self.dialog_swallow = true;
-                    } else if self.menu_open && key == egui::Key::Num3 {
+                    } else if self.menu_open && key == egui::Key::Num2 {
                         self.open_dialog(DialogKind::ImportLikes);
                         self.dialog_swallow = true;
                     } else if modifiers.ctrl && modifiers.shift && key == egui::Key::C {
@@ -481,9 +455,8 @@ impl App {
                         if rect.contains(pos) {
                             self.menu_open = false;
                             match index {
-                                0 => self.open_dialog(DialogKind::AddFiles),
-                                1 => self.open_dialog(DialogKind::ExportLikes),
-                                2 => self.open_dialog(DialogKind::ImportLikes),
+                                0 => self.open_dialog(DialogKind::ExportLikes),
+                                1 => self.open_dialog(DialogKind::ImportLikes),
                                 _ => {}
                             }
                             return;
@@ -584,70 +557,19 @@ impl App {
         }
     }
 
-    pub fn upload_progress(&self) -> upload::Progress {
-        self.progress
-            .lock()
-            .map(|state| state.clone())
-            .unwrap_or_default()
-    }
-
     fn open_dialog(&mut self, kind: DialogKind) {
         self.menu_open = false;
         self.dialog = Some(kind);
-        self.dialog_input = match kind {
-            DialogKind::AddFiles => "~/Music".to_owned(),
-            DialogKind::ExportLikes | DialogKind::ImportLikes => {
-                "~/vlswmplayer-likes.json".to_owned()
-            }
-            DialogKind::DeleteTrack => String::new(),
-        };
-    }
-
-    fn open_delete_dialog(&mut self) {
-        let Some(track) = self.model.visible().get(self.model.selected).cloned() else {
-            return;
-        };
-        if track.path.is_none() {
-            return;
-        }
-        self.pending_delete = Some(track);
-        self.open_dialog(DialogKind::DeleteTrack);
-    }
-
-    fn confirm_delete(&mut self) {
-        let Some(track) = self.pending_delete.take() else { return };
-        upload::delete(&track);
-        self.model.uploaded.retain(|item| item.id != track.id);
-        let _ = upload::save(&self.model.uploaded);
-        if self.model.current.as_ref().map(|c| c.id == track.id).unwrap_or(false) {
-            if let Some(player) = self.player.as_mut() {
-                player.stop();
-            }
-            self.model.current = None;
-            self.model.status = Some("REMOVED".to_owned());
-        } else {
-            self.model.status = Some("REMOVED".to_owned());
-        }
-        let len = self.model.uploaded.len();
-        if self.model.selected >= len {
-            self.model.selected = len.saturating_sub(1);
-        }
-        self.ensure_visible();
+        self.dialog_input = "~/vlswmplayer-likes.json".to_owned();
     }
 
     fn cancel_dialog(&mut self) {
         self.dialog = None;
         self.dialog_input.clear();
-        self.pending_delete = None;
     }
 
-    fn confirm_dialog(&mut self, ctx: &egui::Context) {
+    fn confirm_dialog(&mut self, _ctx: &egui::Context) {
         let Some(kind) = self.dialog else { return };
-        if kind == DialogKind::DeleteTrack {
-            self.dialog = None;
-            self.confirm_delete();
-            return;
-        }
         let raw = self.dialog_input.trim().to_owned();
         self.cancel_dialog();
         if raw.is_empty() {
@@ -656,22 +578,6 @@ impl App {
         let path = expand_home(&raw);
 
         match kind {
-            DialogKind::AddFiles => {
-                let files = collect_audio(&path);
-                if files.is_empty() {
-                    self.model.status = Some("NO AUDIO FILES".to_owned());
-                    return;
-                }
-                let existing = self.model.uploaded.clone();
-                let progress = Arc::clone(&self.progress);
-                let tx = self.tx.clone();
-                let ctx = ctx.clone();
-                std::thread::spawn(move || {
-                    let added = upload::import(&files, &existing, &progress);
-                    let _ = tx.send(Msg::Uploaded { added });
-                    ctx.request_repaint();
-                });
-            }
             DialogKind::ExportLikes => {
                 let tracks = self.model.liked.clone();
                 self.model.status = Some(
@@ -681,17 +587,14 @@ impl App {
                     },
                 );
             }
-            DialogKind::DeleteTrack => {}
-            DialogKind::ImportLikes => {
-                match library::import(&path) {
-                    Ok(tracks) => {
-                        let added = library::merge(&mut self.model.liked, tracks);
-                        let _ = likes::save(&likes::default_path(), &self.model.liked);
-                        self.model.status = Some(format!("IMPORTED {added}"));
-                    }
-                    Err(_) => self.model.status = Some("IMPORT FAILED".to_owned()),
+            DialogKind::ImportLikes => match library::import(&path) {
+                Ok(tracks) => {
+                    let added = library::merge(&mut self.model.liked, tracks);
+                    let _ = likes::save(&likes::default_path(), &self.model.liked);
+                    self.model.status = Some(format!("IMPORTED {added}"));
                 }
-            }
+                Err(_) => self.model.status = Some("IMPORT FAILED".to_owned()),
+            },
         }
     }
 
@@ -721,20 +624,10 @@ impl App {
                         }
                     }
                 }
-                Msg::Uploaded { added } => {
-                    let count = added.len();
-                    self.model.uploaded.extend(added);
-                    let _ = upload::save(&self.model.uploaded);
-                    self.model.status = Some(format!("ADDED {count}"));
-                    if count > 0 && self.model.view != crate::model::View::Uploaded {
-                        self.model.set_view(crate::model::View::Uploaded);
-                        self.ensure_visible();
-                    }
-                }
                 Msg::CacheDone { id, result } => {
                     self.downloading.remove(&id);
                     if result.is_err() {
-                        let _ = self.cache.path_for(&id);
+                        self.cache.remove(&id);
                     }
                 }
                 other => {
@@ -811,32 +704,3 @@ fn expand_home(path: &str) -> std::path::PathBuf {
     std::path::PathBuf::from(path)
 }
 
-fn collect_audio(root: &std::path::Path) -> Vec<std::path::PathBuf> {
-    fn walk(dir: &std::path::Path, depth: usize, out: &mut Vec<std::path::PathBuf>) {
-        if depth > 6 {
-            return;
-        }
-        let Ok(entries) = std::fs::read_dir(dir) else { return };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                walk(&path, depth + 1, out);
-            } else if path
-                .extension()
-                .and_then(|e| e.to_str())
-                .map(|e| upload::EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
-                .unwrap_or(false)
-            {
-                out.push(path);
-            }
-        }
-    }
-    let mut out = Vec::new();
-    if root.is_dir() {
-        walk(root, 0, &mut out);
-    } else if root.is_file() {
-        out.push(root.to_path_buf());
-    }
-    out.sort();
-    out
-}
