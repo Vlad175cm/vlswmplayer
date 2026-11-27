@@ -62,7 +62,7 @@ cd vlswmplayer
 - `~/.local/share/icons/hicolor/256x256/apps/vlswmplayer.png`
 
 Pass a local file if you already downloaded one:
-`./install.sh ~/Downloads/vlswmplayer-1.0.0-x86_64.AppImage`.
+`./install.sh ~/Downloads/vlswmplayer-1.4.0-x86_64.AppImage`.
 The file is copied, so the build in the source tree stays where it is.
 
 ### Update
@@ -79,14 +79,14 @@ entry and the icon. Your likes (`~/.config/vlswmplayer`) and the track cache
 ### Run without installing
 
 ```bash
-chmod +x vlswmplayer-1.0.0-x86_64.AppImage
-./vlswmplayer-1.0.0-x86_64.AppImage
+chmod +x vlswmplayer-1.4.0-x86_64.AppImage
+./vlswmplayer-1.4.0-x86_64.AppImage
 ```
 
 If FUSE is not available:
 
 ```bash
-./vlswmplayer-1.0.0-x86_64.AppImage --appimage-extract-and-run
+./vlswmplayer-1.4.0-x86_64.AppImage --appimage-extract-and-run
 ```
 
 ## Controls

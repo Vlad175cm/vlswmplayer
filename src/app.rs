@@ -32,6 +32,7 @@ pub struct App {
     zoom_done: bool,
     zen_gen: u64,
     zen_waiting: bool,
+    zen_refilling: bool,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
 }
@@ -42,9 +43,9 @@ pub enum DialogKind {
     ImportLikes,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 enum Drag {
-    Progress,
+    Progress(egui::Rect),
     Volume,
 }
 
@@ -110,6 +111,7 @@ impl App {
             zoom_done: false,
             zen_gen: 0,
             zen_waiting: false,
+            zen_refilling: false,
             tx,
             rx,
         };
@@ -229,6 +231,9 @@ impl App {
     }
 
     fn zen_start(&mut self, ctx: &egui::Context) {
+        if self.model.zen.loading {
+            return;
+        }
         if self.model.liked.is_empty() {
             self.model.status = Some("LIKE TRACKS FIRST".to_owned());
             return;
@@ -236,6 +241,7 @@ impl App {
         self.zen_gen += 1;
         let serial = self.zen_gen;
         self.zen_waiting = false;
+        self.zen_refilling = false;
         self.model.zen.loading = true;
         self.model.zen.error = None;
         self.model.status = Some("TUNING".to_owned());
@@ -280,12 +286,13 @@ impl App {
 
     fn zen_refill(&mut self, ctx: &egui::Context) {
         if !self.model.zen.active
+            || self.zen_refilling
             || self.model.zen.loading
             || !self.model.zen.needs_refill()
         {
             return;
         }
-        self.model.zen.loading = true;
+        self.zen_refilling = true;
         let serial = self.zen_gen;
         let likes = self.model.liked.clone();
         let mut zen = self.model.zen.clone();
@@ -648,7 +655,14 @@ impl App {
                 }
                 if let Some(rect) = self.hits.progress {
                     if rect.contains(pos) {
-                        self.drag = Some(Drag::Progress);
+                        self.drag = Some(Drag::Progress(rect));
+                        self.seek_to(pos.x, rect);
+                        return;
+                    }
+                }
+                if let Some(rect) = self.hits.zen_progress {
+                    if rect.contains(pos) {
+                        self.drag = Some(Drag::Progress(rect));
                         self.seek_to(pos.x, rect);
                         return;
                     }
@@ -690,14 +704,14 @@ impl App {
                             self.volume_to(pos.x, rect);
                         }
                     }
-                    Drag::Progress => {}
+                    Drag::Progress(_) => {}
                 }
             }
         }
 
         if released {
-            if self.drag == Some(Drag::Progress) {
-                if let (Some(rect), Some(pos)) = (self.hits.progress, pos) {
+            if let Some(Drag::Progress(rect)) = self.drag {
+                if let Some(pos) = pos {
                     self.seek_to(pos.x, rect);
                 }
             }
@@ -786,6 +800,7 @@ impl App {
                     if serial != self.zen_gen {
                         continue;
                     }
+                    self.zen_refilling = false;
                     self.model.liked = liked;
                     let _ = likes::save(&likes::default_path(), &self.model.liked);
                     self.model.zen.loading = false;
@@ -812,6 +827,7 @@ impl App {
                     if serial != self.zen_gen {
                         continue;
                     }
+                    self.zen_refilling = false;
                     self.model.zen.loading = false;
                     match result {
                         Ok(zen) => {
@@ -829,6 +845,7 @@ impl App {
                             }
                         }
                         Err(error) => {
+                            self.zen_waiting = false;
                             self.model.zen.error = Some(error.clone());
                             self.model.status = Some(format!("ZEN: {error}"));
                         }

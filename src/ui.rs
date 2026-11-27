@@ -18,6 +18,7 @@ pub const ROW_H: f32 = 28.0;
 pub struct Hits {
     pub search: Option<Rect>,
     pub progress: Option<Rect>,
+    pub zen_progress: Option<Rect>,
     pub volume: Option<Rect>,
     pub prev: Option<Rect>,
     pub play: Option<Rect>,
@@ -590,7 +591,7 @@ fn draw_zen(
         };
         let progress = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, 12.0));
         bar(p, progress, frac, pal);
-        hits.progress = Some(progress);
+        hits.zen_progress = Some(progress);
         y += 16.0;
         text_at(
             p,

@@ -501,4 +501,28 @@ mod tests {
         assert!(seen.contains(&Genre::HipHop));
         assert!(seen.contains(&Genre::Ambient));
     }
+
+    #[test]
+    fn merge_queue_keeps_the_play_position() {
+        let mut zen = Zen::new();
+        zen.begin(&[track("seed", "seed", "Trap")]);
+        zen.enqueue(
+            vec![
+                track("1", "a", "Trap"),
+                track("2", "b", "Trap"),
+                track("3", "c", "Trap"),
+            ],
+            Genre::HipHop,
+        );
+        assert_eq!(zen.next().unwrap().id, "2");
+        let mut refreshed = zen.clone();
+        refreshed.enqueue(
+            vec![track("4", "d", "Trap"), track("5", "e", "Trap")],
+            Genre::HipHop,
+        );
+        zen.merge_queue(refreshed);
+        assert_eq!(zen.index, 1);
+        assert_eq!(zen.current().unwrap().id, "2");
+        assert!(zen.queue.len() >= 5);
+    }
 }

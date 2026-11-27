@@ -62,7 +62,7 @@ cd vlswmplayer
 - `~/.local/share/icons/hicolor/256x256/apps/vlswmplayer.png`
 
 Если файл уже скачан, можно указать его:
-`./install.sh ~/Downloads/vlswmplayer-1.0.0-x86_64.AppImage`.
+`./install.sh ~/Downloads/vlswmplayer-1.4.0-x86_64.AppImage`.
 Файл копируется, сборка в папке с исходниками остаётся на месте.
 
 ### Обновление
@@ -79,14 +79,14 @@ cd vlswmplayer
 ### Запуск без установки
 
 ```bash
-chmod +x vlswmplayer-1.0.0-x86_64.AppImage
-./vlswmplayer-1.0.0-x86_64.AppImage
+chmod +x vlswmplayer-1.4.0-x86_64.AppImage
+./vlswmplayer-1.4.0-x86_64.AppImage
 ```
 
 Если FUSE недоступен:
 
 ```bash
-./vlswmplayer-1.0.0-x86_64.AppImage --appimage-extract-and-run
+./vlswmplayer-1.4.0-x86_64.AppImage --appimage-extract-and-run
 ```
 
 ## Управление
