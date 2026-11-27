@@ -367,6 +367,12 @@ impl App {
 
     fn play_selected(&mut self, ctx: &egui::Context) {
         if let Some(track) = self.model.visible().get(self.model.selected).cloned() {
+            if self.model.view != crate::model::View::Zen {
+                self.zen_gen += 1;
+                self.zen_waiting = false;
+                self.zen_refilling = false;
+                self.model.zen = Zen::new();
+            }
             self.model.source = self.model.view;
             self.play_track(track, ctx);
         }
