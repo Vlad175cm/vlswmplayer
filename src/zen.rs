@@ -27,18 +27,6 @@ impl Genre {
         Genre::Other,
     ];
 
-    pub fn label(self) -> &'static str {
-        match self {
-            Genre::HipHop => "HIP-HOP",
-            Genre::Electronic => "ELECTRONIC",
-            Genre::Hardstyle => "HARDSTYLE",
-            Genre::Ambient => "AMBIENT",
-            Genre::Rock => "ROCK",
-            Genre::Pop => "POP",
-            Genre::Other => "OTHER",
-        }
-    }
-
     pub fn query(self) -> &'static str {
         match self {
             Genre::HipHop => "hip hop",

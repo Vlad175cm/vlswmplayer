@@ -2,7 +2,6 @@ use crate::app::{App, DialogKind};
 use crate::likes;
 use crate::model::View;
 use crate::util::format_time;
-use crate::zen::Genre;
 use eframe::egui::{
     self, Align2, Color32, CornerRadius, FontId, Painter, Pos2, Rect, Stroke, StrokeKind, Vec2,
 };
@@ -508,24 +507,39 @@ fn draw_zen(
     let x = split + 1.0 + PAD;
     let w = body.right() - PAD - x;
     let cx = x + w / 2.0;
-    let mut y = body.top() + 58.0;
 
-    text_at(
-        p,
-        Pos2::new(cx, y + 24.0),
-        Align2::CENTER_CENTER,
-        "ZEN",
-        54.0,
-        pal.fg,
-    );
-    y += 100.0;
-
-    let button = Rect::from_center_size(Pos2::new(cx, y + 60.0), Vec2::splat(120.0));
     let playing = app
         .player
         .as_ref()
         .map(|player| !player.state().paused && !player.state().idle)
         .unwrap_or(false);
+    let show_track = app.model.zen.active && app.model.current.is_some();
+    let show_hint = !app.model.zen.active && app.model.liked.is_empty();
+
+    let mut block_h = 64.0 + 30.0 + 120.0;
+    if show_track {
+        block_h += 24.0 + 26.0 + 20.0 + 16.0 + 20.0;
+    } else if show_hint {
+        block_h += 24.0 + 18.0;
+    }
+    if app.model.zen.loading {
+        block_h += 24.0;
+    }
+
+    let top = (body.center().y - block_h / 2.0).max(body.top() + 52.0);
+    let mut y = top;
+
+    text_at(
+        p,
+        Pos2::new(cx, y),
+        Align2::CENTER_TOP,
+        "ZEN",
+        54.0,
+        pal.fg,
+    );
+    y += 64.0 + 30.0;
+
+    let button = Rect::from_center_size(Pos2::new(cx, y + 60.0), Vec2::splat(120.0));
     let label = if app.model.zen.loading {
         "..."
     } else if app.model.zen.active && playing {
@@ -546,9 +560,10 @@ fn draw_zen(
         text_at(p, button.center(), Align2::CENTER_CENTER, label, 42.0, pal.fg);
     }
     hits.zen_play = Some(button);
-    y = button.bottom() + 22.0;
+    y += 120.0;
 
-    if app.model.zen.active {
+    if show_track {
+        y += 24.0;
         if let Some(track) = app.model.current.as_ref() {
             text_at(
                 p,
@@ -567,17 +582,7 @@ fn draw_zen(
                 11.0,
                 pal.fg,
             );
-            y += 22.0;
-            let bucket = Genre::from_tags(&track.genre, &track.tags).label();
-            text_at(
-                p,
-                Pos2::new(cx, y),
-                Align2::CENTER_TOP,
-                &format!("GENRE // {bucket}"),
-                9.0,
-                pal.fg,
-            );
-            y += 18.0;
+            y += 20.0;
         }
 
         let (position, duration) = match app.player.as_ref() {
@@ -609,7 +614,9 @@ fn draw_zen(
             10.0,
             pal.fg,
         );
-    } else if app.model.liked.is_empty() {
+        y += 20.0;
+    } else if show_hint {
+        y += 24.0;
         text_at(
             p,
             Pos2::new(cx, y),
@@ -618,21 +625,14 @@ fn draw_zen(
             13.0,
             pal.fg,
         );
-    } else {
-        text_at(
-            p,
-            Pos2::new(cx, y),
-            Align2::CENTER_TOP,
-            "SOUNDCLOUD RADIO FROM YOUR LIKES",
-            11.0,
-            pal.fg,
-        );
+        y += 18.0;
     }
 
     if app.model.zen.loading {
+        y += 24.0;
         text_at(
             p,
-            Pos2::new(cx, y + 34.0),
+            Pos2::new(cx, y),
             Align2::CENTER_TOP,
             "TUNING",
             11.0,

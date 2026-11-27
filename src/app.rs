@@ -271,7 +271,10 @@ impl App {
                 ctx.request_repaint();
                 return;
             }
-            fill_zen(&mut zen, &liked, &cid, 4);
+            fill_zen(&mut zen, &liked, &cid, 1);
+            if zen.queue.is_empty() {
+                fill_zen(&mut zen, &liked, &cid, 2);
+            }
             let result = if zen.queue.is_empty() {
                 Err("NO TRACKS".to_owned())
             } else {
@@ -1005,26 +1008,40 @@ fn fill_zen(zen: &mut Zen, likes: &[Track], cid: &str, rounds: usize) {
             .filter(|track| Genre::from_tags(&track.genre, &track.tags) == genre)
             .collect();
         let mut candidates = Vec::new();
-        for seed in seeds.iter().take(2) {
-            if let Ok(mut tracks) = sc::related_tracks(&seed.id, cid, 20) {
-                candidates.append(&mut tracks);
+
+        // The three requests are independent; run them together so the first
+        // track does not wait for a full sequential round.
+        std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for seed in seeds.iter().take(2) {
+                handles.push(scope.spawn(move || sc::related_tracks(&seed.id, cid, 20)));
             }
-        }
-        if genre != Genre::Other {
-            if let Ok(mut tracks) = sc::search_api_limit(genre.query(), cid, 20) {
-                candidates.append(&mut tracks);
+            if genre != Genre::Other {
+                handles.push(scope.spawn(|| sc::search_api_limit(genre.query(), cid, 20)));
             }
-        }
+            for handle in handles {
+                if let Ok(Ok(mut tracks)) = handle.join() {
+                    candidates.append(&mut tracks);
+                }
+            }
+        });
+
         zen.enqueue(candidates, genre);
     }
 
     if zen.queue.is_empty() {
         let mut candidates = Vec::new();
-        for seed in likes.iter().take(3) {
-            if let Ok(mut tracks) = sc::related_tracks(&seed.id, cid, 20) {
-                candidates.append(&mut tracks);
+        std::thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for seed in likes.iter().take(3) {
+                handles.push(scope.spawn(move || sc::related_tracks(&seed.id, cid, 20)));
             }
-        }
+            for handle in handles {
+                if let Ok(Ok(mut tracks)) = handle.join() {
+                    candidates.append(&mut tracks);
+                }
+            }
+        });
         zen.enqueue(candidates, Genre::Other);
     }
 }
