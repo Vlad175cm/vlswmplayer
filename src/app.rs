@@ -21,6 +21,7 @@ pub struct App {
     pub last_edit: Option<Instant>,
     pub hits: ui::Hits,
     pub menu_open: bool,
+    pub drag_preview: Option<f32>,
     pub dialog: Option<DialogKind>,
     pub dialog_input: String,
     dialog_swallow: bool,
@@ -100,6 +101,7 @@ impl App {
             last_edit: None,
             hits: ui::Hits::default(),
             menu_open: false,
+            drag_preview: None,
             dialog: None,
             dialog_input: String::new(),
             dialog_swallow: false,
@@ -662,6 +664,8 @@ impl App {
                 if let Some(rect) = self.hits.progress {
                     if rect.contains(pos) {
                         self.drag = Some(Drag::Progress(rect));
+                        self.drag_preview =
+                            Some(crate::util::fraction_at(pos.x, rect.left(), rect.width()));
                         self.seek_to(pos.x, rect);
                         return;
                     }
@@ -669,6 +673,8 @@ impl App {
                 if let Some(rect) = self.hits.zen_progress {
                     if rect.contains(pos) {
                         self.drag = Some(Drag::Progress(rect));
+                        self.drag_preview =
+                            Some(crate::util::fraction_at(pos.x, rect.left(), rect.width()));
                         self.seek_to(pos.x, rect);
                         return;
                     }
@@ -710,7 +716,13 @@ impl App {
                             self.volume_to(pos.x, rect);
                         }
                     }
-                    Drag::Progress(_) => {}
+                    Drag::Progress(rect) => {
+                        self.drag_preview = Some(crate::util::fraction_at(
+                            pos.x,
+                            rect.left(),
+                            rect.width(),
+                        ));
+                    }
                 }
             }
         }
@@ -721,6 +733,7 @@ impl App {
                     self.seek_to(pos.x, rect);
                 }
             }
+            self.drag_preview = None;
             self.drag = None;
         }
     }

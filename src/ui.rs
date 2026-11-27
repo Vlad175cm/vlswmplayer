@@ -412,7 +412,7 @@ fn draw_now_playing(
     };
 
     let progress = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, 12.0));
-    bar(p, progress, frac, pal);
+    bar(p, progress, app.drag_preview.unwrap_or(frac), pal);
     hits.progress = Some(progress);
     y += 16.0;
 
@@ -590,7 +590,7 @@ fn draw_zen(
             0.0
         };
         let progress = Rect::from_min_size(Pos2::new(x, y), Vec2::new(w, 12.0));
-        bar(p, progress, frac, pal);
+        bar(p, progress, app.drag_preview.unwrap_or(frac), pal);
         hits.zen_progress = Some(progress);
         y += 16.0;
         text_at(
