@@ -11,6 +11,7 @@ mod sc;
 mod theme;
 mod ui;
 mod util;
+mod zen;
 
 use eframe::egui;
 
