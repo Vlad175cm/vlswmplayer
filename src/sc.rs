@@ -13,9 +13,12 @@ pub struct Track {
     pub id: String,
     pub title: String,
     pub artist: String,
+    pub artist_key: String,
     pub duration: u64,
     pub url: String,
     pub artwork: Option<String>,
+    pub genre: String,
+    pub tags: String,
     pub media: Vec<Transcoding>,
     pub track_authorization: String,
 }
@@ -26,9 +29,12 @@ impl Default for Track {
             id: String::new(),
             title: String::new(),
             artist: String::new(),
+            artist_key: String::new(),
             duration: 0,
             url: String::new(),
             artwork: None,
+            genre: String::new(),
+            tags: String::new(),
             media: Vec::new(),
             track_authorization: String::new(),
         }
@@ -74,13 +80,26 @@ pub fn parse_search(json: &str) -> Result<Vec<Track>, String> {
             .and_then(|thumb| text(thumb.get("url")))
             .map(str::to_owned);
 
+        let artist = text(entry.get("uploader")).unwrap_or("unknown").to_owned();
         tracks.push(Track {
             id,
             title: text(entry.get("title")).unwrap_or("untitled").to_owned(),
-            artist: text(entry.get("uploader")).unwrap_or("unknown").to_owned(),
+            artist_key: artist.clone(),
+            artist,
             duration,
             url: url.to_owned(),
             artwork,
+            genre: text(entry.get("genre")).unwrap_or("").to_owned(),
+            tags: entry
+                .get("tags")
+                .and_then(Value::as_array)
+                .map(|list| {
+                    list.iter()
+                        .filter_map(Value::as_str)
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+                .unwrap_or_default(),
             media: Vec::new(),
             track_authorization: String::new(),
         });
@@ -187,9 +206,9 @@ fn encode(value: &str) -> String {
     out
 }
 
-fn http_get(url: &str) -> Result<String, String> {
+fn http_get_timeout(url: &str, secs: u64) -> Result<String, String> {
     let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(std::time::Duration::from_secs(8)))
+        .timeout_global(Some(std::time::Duration::from_secs(secs)))
         .build()
         .into();
     let mut response = agent
@@ -201,6 +220,10 @@ fn http_get(url: &str) -> Result<String, String> {
     String::from_utf8(body).map_err(|e| e.to_string())
 }
 
+fn http_get(url: &str) -> Result<String, String> {
+    http_get_timeout(url, 8)
+}
+
 pub fn parse_client_id(text: &str) -> Option<String> {
     let value: Value = serde_json::from_str(text).ok()?;
     value
@@ -210,10 +233,133 @@ pub fn parse_client_id(text: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+pub fn client_id_path() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("XDG_CACHE_HOME").filter(|v| !v.is_empty()) {
+        return Some(PathBuf::from(dir).join("vlswmplayer/client_id"));
+    }
+    let home = std::env::var_os("HOME").filter(|v| !v.is_empty())?;
+    Some(PathBuf::from(home).join(".cache/vlswmplayer/client_id"))
+}
+
+fn read_client_id_file(path: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let id = text.trim();
+    if id.len() == 32 && id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        Some(id.to_owned())
+    } else {
+        None
+    }
+}
+
+fn save_client_id(id: &str) {
+    let Some(path) = client_id_path() else { return };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::write(path, id);
+}
+
+fn http_head_len(url: &str, secs: u64) -> Option<u64> {
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(std::time::Duration::from_secs(secs)))
+        .build()
+        .into();
+    let response = agent
+        .head(url)
+        .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64)")
+        .call()
+        .ok()?;
+    response
+        .headers()
+        .get("content-length")?
+        .to_str()
+        .ok()?
+        .parse()
+        .ok()
+}
+
+/// Last-resort id, same one the iOS client ships with. It is replaced by the
+/// scraped value as soon as that succeeds.
+pub const FALLBACK_CLIENT_ID: &str = "OGA0P5R5U4CpyooNe9OUcnjIMxao2hB2";
+
+pub fn find_client_id(js: &str) -> Option<String> {
+    for (index, _) in js.match_indices("client_id") {
+        let rest = &js[index + "client_id".len()..];
+        let rest = rest.trim_start_matches(|c: char| {
+            c == ':' || c == '=' || c == '"' || c == '\'' || c.is_whitespace()
+        });
+        let candidate: String = rest.chars().take(32).collect();
+        if candidate.len() == 32 && candidate.chars().all(|c| c.is_ascii_alphanumeric()) {
+            let next = rest.chars().nth(32);
+            if !next.is_some_and(|c| c.is_ascii_alphanumeric()) {
+                return Some(candidate);
+            }
+        }
+    }
+    None
+}
+
+fn asset_urls(html: &str) -> Vec<String> {
+    const NEEDLE: &str = "https://a-v2.sndcdn.com/assets/";
+    let mut out: Vec<String> = Vec::new();
+    let mut rest = html;
+    while let Some(pos) = rest.find(NEEDLE) {
+        let tail = &rest[pos..];
+        let end = tail
+            .find(|c: char| c == '"' || c == '\'' || c == ' ' || c == '<' || c == '\\')
+            .unwrap_or(tail.len());
+        let url = &tail[..end];
+        if url.ends_with(".js") && !out.iter().any(|known| known == url) {
+            out.push(url.to_owned());
+        }
+        rest = &tail[end.max(1)..];
+        if out.len() >= 12 {
+            break;
+        }
+    }
+    out
+}
+
+/// Scrapes soundcloud.com for a fresh client id and caches it.
+pub fn fetch_client_id() -> Option<String> {
+    let html = http_get_timeout("https://soundcloud.com/", 6).ok()?;
+    let mut sized: Vec<(u64, String)> = asset_urls(&html)
+        .into_iter()
+        .map(|url| (http_head_len(&url, 3).unwrap_or(0), url))
+        .collect();
+    // The client id lives in the biggest app bundle, so try that one first.
+    sized.sort_by(|a, b| b.0.cmp(&a.0));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+    for (_, asset) in sized.into_iter().take(12) {
+        if std::time::Instant::now() >= deadline {
+            break;
+        }
+        let Ok(js) = http_get_timeout(&asset, 8) else {
+            continue;
+        };
+        if let Some(id) = find_client_id(&js) {
+            save_client_id(&id);
+            return Some(id);
+        }
+    }
+    None
+}
+
 pub fn client_id() -> Option<String> {
-    let home = std::env::var_os("HOME")?;
-    let path = PathBuf::from(home).join(".cache/yt-dlp/soundcloud/client_id.json");
-    parse_client_id(&std::fs::read_to_string(path).ok()?)
+    if let Some(path) = client_id_path() {
+        if let Some(id) = read_client_id_file(&path) {
+            return Some(id);
+        }
+    }
+    if let Some(home) = std::env::var_os("HOME") {
+        let path = PathBuf::from(home).join(".cache/yt-dlp/soundcloud/client_id.json");
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if let Some(id) = parse_client_id(&text) {
+                return Some(id);
+            }
+        }
+    }
+    Some(FALLBACK_CLIENT_ID.to_owned())
 }
 
 fn artwork_big(url: &str) -> String {
@@ -237,6 +383,19 @@ pub fn parse_api_search(json: &str) -> Result<Vec<Track>, String> {
         }
     }
     Ok(tracks)
+}
+
+/// Parses the plain array returned by `/tracks?ids=...`.
+pub fn parse_tracks_array(json: &str, require_media: bool) -> Result<Vec<Track>, String> {
+    let root: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
+    let Some(items) = root.as_array() else {
+        return Ok(Vec::new());
+    };
+    Ok(items
+        .iter()
+        .filter_map(track_from_api)
+        .filter(|track| !require_media || !track.media.is_empty())
+        .collect())
 }
 
 fn track_from_api(item: &Value) -> Option<Track> {
@@ -270,15 +429,23 @@ fn track_from_api(item: &Value) -> Option<Track> {
         })
         .unwrap_or_default();
 
+    let artist = text(item.get("user").and_then(|u| u.get("username")))
+        .unwrap_or("unknown")
+        .to_owned();
+    let artist_key = text(item.get("publisher_metadata").and_then(|p| p.get("artist")))
+        .unwrap_or(&artist)
+        .to_owned();
+
     Some(Track {
         id,
         title: text(item.get("title")).unwrap_or("untitled").to_owned(),
-        artist: text(item.get("user").and_then(|u| u.get("username")))
-            .unwrap_or("unknown")
-            .to_owned(),
+        artist,
+        artist_key,
         duration,
         url: permalink,
         artwork: text(item.get("artwork_url")).map(artwork_big),
+        genre: text(item.get("genre")).unwrap_or("").to_owned(),
+        tags: text(item.get("tag_list")).unwrap_or("").to_owned(),
         media,
         track_authorization: text(item.get("track_authorization"))
             .unwrap_or("")
@@ -286,13 +453,47 @@ fn track_from_api(item: &Value) -> Option<Track> {
     })
 }
 
-pub fn search_api(query: &str, cid: &str) -> Result<Vec<Track>, String> {
+pub fn search_api_limit(query: &str, cid: &str, limit: usize) -> Result<Vec<Track>, String> {
     let url = format!(
-        "https://api-v2.soundcloud.com/search/tracks?q={}&client_id={}&limit=10",
+        "https://api-v2.soundcloud.com/search/tracks?q={}&client_id={}&limit={}",
         encode(query),
-        encode(cid)
+        encode(cid),
+        limit
     );
     parse_api_search(&http_get(&url)?)
+}
+
+pub fn search_api(query: &str, cid: &str) -> Result<Vec<Track>, String> {
+    search_api_limit(query, cid, 10)
+}
+
+pub fn related_tracks(id: &str, cid: &str, limit: usize) -> Result<Vec<Track>, String> {
+    let url = format!(
+        "https://api-v2.soundcloud.com/tracks/{}/related?client_id={}&limit={}",
+        encode(id),
+        encode(cid),
+        limit
+    );
+    parse_api_search(&http_get(&url)?)
+}
+
+/// Fetches full track objects for ids, in chunks the API accepts.
+pub fn api_tracks(ids: &[String], cid: &str) -> Result<Vec<Track>, String> {
+    let mut out = Vec::new();
+    for chunk in ids.chunks(50) {
+        let joined = chunk
+            .iter()
+            .map(|id| encode(id))
+            .collect::<Vec<_>>()
+            .join(",");
+        let url = format!(
+            "https://api-v2.soundcloud.com/tracks?ids={}&client_id={}",
+            joined,
+            encode(cid)
+        );
+        out.extend(parse_tracks_array(&http_get(&url)?, false)?);
+    }
+    Ok(out)
 }
 
 pub fn api_track(id: &str, cid: &str) -> Result<Track, String> {
@@ -371,9 +572,14 @@ pub fn ytdlp_stream(url: &str, ytdlp: &Path) -> Result<String, String> {
         .ok_or_else(|| "no url".to_owned())
 }
 
-/// Fast path: api-v2 with the cached client id, falling back to yt-dlp.
+/// Fast path: api-v2 with a cached client id, refreshing it once, then yt-dlp.
 pub fn search_fast(query: &str, ytdlp: &Path) -> Result<Vec<Track>, String> {
     if let Some(cid) = client_id() {
+        if let Ok(tracks) = search_api(query, &cid) {
+            return Ok(tracks);
+        }
+    }
+    if let Some(cid) = fetch_client_id() {
         if let Ok(tracks) = search_api(query, &cid) {
             return Ok(tracks);
         }
@@ -381,16 +587,24 @@ pub fn search_fast(query: &str, ytdlp: &Path) -> Result<Vec<Track>, String> {
     search(query, ytdlp)
 }
 
-/// Stream URL for a track: api-v2 first, then yt-dlp.
+/// Stream URL for a track: api-v2 first, refresh once, then yt-dlp.
 pub fn stream_url(track: &Track, ytdlp: &Path) -> Result<String, String> {
     if let Some(cid) = client_id() {
-        if let Ok(ready) = hydrate(track, &cid) {
-            if let Ok(url) = resolve_stream(&ready, &cid) {
-                return Ok(url);
-            }
+        if let Ok(url) = api_stream(track, &cid) {
+            return Ok(url);
+        }
+    }
+    if let Some(cid) = fetch_client_id() {
+        if let Ok(url) = api_stream(track, &cid) {
+            return Ok(url);
         }
     }
     ytdlp_stream(&track.url, ytdlp)
+}
+
+fn api_stream(track: &Track, cid: &str) -> Result<String, String> {
+    let ready = hydrate(track, cid)?;
+    resolve_stream(&ready, cid)
 }
 
 /// Tracks restored from likes carry no media, so ask api-v2 for a fresh copy.
@@ -559,5 +773,75 @@ mod tests {
             Some("https://x/y")
         );
         assert_eq!(parse_stream_url("{}"), None);
+    }
+
+    #[test]
+    fn finds_client_id_in_minified_js() {
+        let js = r#"t={"client_id":"abcdefghijklmnopqrstuvwxyz012345","x":1}"#;
+        assert_eq!(
+            find_client_id(js).as_deref(),
+            Some("abcdefghijklmnopqrstuvwxyz012345")
+        );
+        let eq = "var u='client_id=abcdefghijklmnopqrstuvwxyz012345&foo=1'";
+        assert_eq!(
+            find_client_id(eq).as_deref(),
+            Some("abcdefghijklmnopqrstuvwxyz012345")
+        );
+        assert_eq!(find_client_id(r#"client_id:"short""#), None);
+        assert_eq!(find_client_id("nothing here"), None);
+    }
+
+    #[test]
+    fn extracts_unique_js_assets() {
+        let html = r#"
+            <script src="https://a-v2.sndcdn.com/assets/42-abc.js"></script>
+            <script src="https://a-v2.sndcdn.com/assets/42-abc.js"></script>
+            <script src="https://a-v2.sndcdn.com/assets/43-def.js"></script>
+            <script src="https://a-v2.sndcdn.com/assets/logo.png"></script>
+        "#;
+        let urls = asset_urls(html);
+        assert_eq!(urls.len(), 2);
+        assert!(urls[0].ends_with("42-abc.js"));
+        assert!(urls[1].ends_with("43-def.js"));
+    }
+
+    #[test]
+    fn reads_client_id_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("client_id");
+        std::fs::write(&path, "abcdefghijklmnopqrstuvwxyz012345\n").unwrap();
+        assert_eq!(
+            read_client_id_file(&path).as_deref(),
+            Some("abcdefghijklmnopqrstuvwxyz012345")
+        );
+        std::fs::write(&path, "short").unwrap();
+        assert_eq!(read_client_id_file(&path), None);
+    }
+
+    #[test]
+    fn parses_batch_tracks_with_optional_media() {
+        let json = r#"[
+            {"id":1,"title":"with","permalink_url":"p","duration":1000,
+             "genre":"Ambient","tag_list":"chill",
+             "media":{"transcodings":[{"url":"u","preset":"aac_160k",
+              "format":{"protocol":"hls"}}]}},
+            {"id":2,"title":"without","permalink_url":"p","duration":1000,
+             "genre":"Rap"}
+        ]"#;
+        let with_media = parse_tracks_array(json, true).unwrap();
+        let without_media = parse_tracks_array(json, false).unwrap();
+        assert_eq!(with_media.len(), 1);
+        assert_eq!(without_media.len(), 2);
+        assert_eq!(without_media[0].genre, "Ambient");
+        assert_eq!(without_media[0].tags, "chill");
+        assert_eq!(without_media[1].genre, "Rap");
+    }
+
+    #[test]
+    #[ignore]
+    fn manual_refresh_client_id() {
+        let id = fetch_client_id().expect("client id");
+        assert_eq!(id.len(), 32);
+        assert!(id.chars().all(|c| c.is_ascii_alphanumeric()));
     }
 }

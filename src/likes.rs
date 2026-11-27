@@ -20,6 +20,8 @@ fn to_value(track: &Track) -> Value {
         "duration": track.duration,
         "url": track.url,
         "artwork": track.artwork,
+        "genre": track.genre,
+        "tags": track.tags,
     })
 }
 
@@ -47,6 +49,16 @@ fn from_value(value: &Value) -> Option<Track> {
             .get("artwork")
             .and_then(Value::as_str)
             .map(str::to_owned),
+        genre: value
+            .get("genre")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned(),
+        tags: value
+            .get("tags")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_owned(),
         ..Default::default()
     })
 }
@@ -145,5 +157,27 @@ mod tests {
         assert!(load(&path).is_empty());
         assert!(parse("[]").is_empty());
         assert!(parse("{}").is_empty());
+    }
+
+    #[test]
+    fn old_json_without_genre_still_reads() {
+        let text = r#"[{"id":"1","title":"t","artist":"a","duration":5,"url":"u"}]"#;
+        let tracks = parse(text);
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].genre, "");
+        assert_eq!(tracks[0].tags, "");
+    }
+
+    #[test]
+    fn genre_and_tags_roundtrip() {
+        let track = Track {
+            genre: "Hip-hop & Rap".into(),
+            tags: "trap drill".into(),
+            ..track("1")
+        };
+        let text = to_text(&[track]);
+        let back = parse(&text);
+        assert_eq!(back[0].genre, "Hip-hop & Rap");
+        assert_eq!(back[0].tags, "trap drill");
     }
 }

@@ -15,6 +15,8 @@ pub fn export(path: &Path, tracks: &[Track]) -> Result<(), String> {
                 "duration": t.duration,
                 "url": t.url,
                 "artwork": t.artwork,
+                "genre": t.genre,
+                "tags": t.tags,
             })
         })
         .collect();
@@ -43,6 +45,11 @@ pub fn import(path: &Path) -> Result<Vec<Track>, String> {
         .iter()
         .filter_map(|item| {
             let id = item.get("id")?.as_str()?.to_owned();
+            let artist = item
+                .get("artist")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown")
+                .to_owned();
             Some(Track {
                 id,
                 title: item
@@ -50,11 +57,8 @@ pub fn import(path: &Path) -> Result<Vec<Track>, String> {
                     .and_then(Value::as_str)
                     .unwrap_or("untitled")
                     .to_owned(),
-                artist: item
-                    .get("artist")
-                    .and_then(Value::as_str)
-                    .unwrap_or("unknown")
-                    .to_owned(),
+                artist_key: artist.clone(),
+                artist,
                 duration: item.get("duration").and_then(Value::as_u64).unwrap_or(0),
                 url: item
                     .get("url")
@@ -65,6 +69,16 @@ pub fn import(path: &Path) -> Result<Vec<Track>, String> {
                     .get("artwork")
                     .and_then(Value::as_str)
                     .map(str::to_owned),
+                genre: item
+                    .get("genre")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned(),
+                tags: item
+                    .get("tags")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned(),
                 media: Vec::new(),
                 track_authorization: String::new(),
             })
@@ -104,11 +118,15 @@ mod tests {
     fn roundtrips_and_merges() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("likes.json");
-        let source = vec![track("1"), track("2")];
+        let mut source = vec![track("1"), track("2")];
+        source[0].genre = "Ambient".into();
+        source[0].tags = "chill".into();
         export(&path, &source).unwrap();
 
         let imported = import(&path).unwrap();
         assert_eq!(imported.len(), 2);
+        assert_eq!(imported[0].genre, "Ambient");
+        assert_eq!(imported[0].tags, "chill");
         assert_eq!(imported[1].title, "title 2");
 
         let mut current = vec![track("1")];
