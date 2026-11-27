@@ -1,5 +1,6 @@
 use crate::likes;
 use crate::sc::Track;
+use crate::zen::Zen;
 
 pub const DEBOUNCE_MS: u64 = 400;
 pub const MIN_QUERY_LEN: usize = 2;
@@ -21,10 +22,20 @@ pub enum Msg {
         id: String,
         result: Result<(), String>,
     },
+    ZenReady {
+        serial: u64,
+        liked: Vec<Track>,
+        result: Result<crate::zen::Zen, String>,
+    },
+    ZenMore {
+        serial: u64,
+        result: Result<crate::zen::Zen, String>,
+    },
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum View {
+    Zen,
     Search,
     Likes,
 }
@@ -40,7 +51,9 @@ pub struct Model {
     pub current: Option<Track>,
     pub pending_artwork: Option<egui::ColorImage>,
     pub view: View,
+    pub source: View,
     pub liked: Vec<Track>,
+    pub zen: Zen,
     pub scroll: usize,
 }
 
@@ -57,7 +70,9 @@ impl Model {
             current: None,
             pending_artwork: None,
             view: View::Search,
+            source: View::Search,
             liked: Vec::new(),
+            zen: Zen::new(),
             scroll: 0,
         }
     }
@@ -85,7 +100,10 @@ impl Model {
                 }
                 None
             }
-            Msg::StreamReady { .. } | Msg::CacheDone { .. } => None,
+            Msg::StreamReady { .. }
+            | Msg::CacheDone { .. }
+            | Msg::ZenReady { .. }
+            | Msg::ZenMore { .. } => None,
             Msg::ArtworkDone { id, result } => {
                 if let (Some(current), Ok(image)) = (&self.current, result) {
                     if current.id == id {
@@ -107,6 +125,7 @@ impl Model {
 
     pub fn visible(&self) -> &[Track] {
         match self.view {
+            View::Zen => &self.zen.queue,
             View::Search => &self.results,
             View::Likes => &self.liked,
         }
@@ -114,7 +133,11 @@ impl Model {
 
     pub fn set_view(&mut self, view: View) {
         self.view = view;
-        self.selected = 0;
+        self.selected = if view == View::Zen {
+            self.zen.index
+        } else {
+            0
+        };
         self.scroll = 0;
     }
 
@@ -139,8 +162,9 @@ impl Model {
 
     pub fn toggle_view(&mut self) {
         self.set_view(match self.view {
+            View::Zen => View::Search,
             View::Search => View::Likes,
-            View::Likes => View::Search,
+            View::Likes => View::Zen,
         });
     }
 
@@ -165,6 +189,9 @@ impl Model {
     }
 
     pub fn next_track(&mut self) -> Option<Track> {
+        if self.source == View::Zen {
+            return self.zen.next();
+        }
         if self.selected + 1 >= self.visible().len() {
             return None;
         }
@@ -175,6 +202,9 @@ impl Model {
     }
 
     pub fn prev_track(&mut self) -> Option<Track> {
+        if self.source == View::Zen {
+            return self.zen.previous();
+        }
         if self.selected == 0 || self.visible().is_empty() {
             return None;
         }

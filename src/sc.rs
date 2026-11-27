@@ -54,6 +54,18 @@ fn id_of(value: &Value) -> Option<String> {
     }
 }
 
+fn artist_from_title(title: &str) -> Option<String> {
+    for separator in [" - ", " – ", " — ", " —"] {
+        if let Some((artist, _)) = title.split_once(separator) {
+            let artist = artist.trim();
+            if artist.len() >= 2 && artist.len() <= 40 {
+                return Some(artist.to_owned());
+            }
+        }
+    }
+    None
+}
+
 pub fn parse_search(json: &str) -> Result<Vec<Track>, String> {
     let root: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;
     let Some(entries) = root.get("entries").and_then(Value::as_array) else {
@@ -80,11 +92,13 @@ pub fn parse_search(json: &str) -> Result<Vec<Track>, String> {
             .and_then(|thumb| text(thumb.get("url")))
             .map(str::to_owned);
 
+        let title = text(entry.get("title")).unwrap_or("untitled").to_owned();
         let artist = text(entry.get("uploader")).unwrap_or("unknown").to_owned();
+        let artist_key = artist_from_title(&title).unwrap_or_else(|| artist.clone());
         tracks.push(Track {
             id,
-            title: text(entry.get("title")).unwrap_or("untitled").to_owned(),
-            artist_key: artist.clone(),
+            title,
+            artist_key,
             artist,
             duration,
             url: url.to_owned(),
@@ -432,13 +446,15 @@ fn track_from_api(item: &Value) -> Option<Track> {
     let artist = text(item.get("user").and_then(|u| u.get("username")))
         .unwrap_or("unknown")
         .to_owned();
+    let title = text(item.get("title")).unwrap_or("untitled").to_owned();
     let artist_key = text(item.get("publisher_metadata").and_then(|p| p.get("artist")))
-        .unwrap_or(&artist)
-        .to_owned();
+        .map(str::to_owned)
+        .or_else(|| artist_from_title(&title))
+        .unwrap_or_else(|| artist.clone());
 
     Some(Track {
         id,
-        title: text(item.get("title")).unwrap_or("untitled").to_owned(),
+        title,
         artist,
         artist_key,
         duration,
@@ -819,8 +835,21 @@ mod tests {
     }
 
     #[test]
-    fn parses_batch_tracks_with_optional_media() {
-        let json = r#"[
+    fn extracts_artist_from_title() {
+        assert_eq!(
+            artist_from_title("Aphex Twin - Pulsewidth").as_deref(),
+            Some("Aphex Twin")
+        );
+        assert_eq!(
+            artist_from_title("Кровосток – Биография").as_deref(),
+            Some("Кровосток")
+        );
+        assert_eq!(artist_from_title("no separator").as_deref(), None);
+        assert_eq!(artist_from_title(" - broken").as_deref(), None);
+    }
+
+    #[test]
+    fn parses_batch_tracks_with_optional_media() {        let json = r#"[
             {"id":1,"title":"with","permalink_url":"p","duration":1000,
              "genre":"Ambient","tag_list":"chill",
              "media":{"transcodings":[{"url":"u","preset":"aac_160k",

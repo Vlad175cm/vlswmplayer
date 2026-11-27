@@ -220,10 +220,6 @@ impl Zen {
         self.queue.get(self.index)
     }
 
-    pub fn is_active(&self) -> bool {
-        self.active
-    }
-
     pub fn needs_refill(&self) -> bool {
         self.queue.len().saturating_sub(self.index + 1) < QUEUE_LOW
     }
@@ -336,6 +332,19 @@ impl Zen {
             self.excluded.insert(track.id);
         }
     }
+
+    /// Keeps the current playback position while adopting a freshly refilled queue.
+    pub fn merge_queue(&mut self, other: Zen) {
+        if other.queue.len() >= self.queue.len() {
+            self.queue = other.queue;
+            self.seen = other.seen;
+            self.recent = other.recent;
+        }
+        self.loading = false;
+        if self.index >= self.queue.len() {
+            self.index = self.queue.len().saturating_sub(1);
+        }
+    }
 }
 
 impl Default for Zen {
@@ -393,7 +402,7 @@ mod tests {
     fn empty_likes_do_not_start() {
         let mut zen = Zen::new();
         assert!(!zen.begin(&[]));
-        assert!(!zen.is_active());
+        assert!(!zen.active);
     }
 
     #[test]
@@ -407,7 +416,7 @@ mod tests {
         assert!(zen.begin(&likes));
         assert_eq!(zen.weights.get(&Genre::HipHop), Some(&2));
         assert_eq!(zen.weights.get(&Genre::Ambient), Some(&1));
-        assert!(zen.is_active());
+        assert!(zen.active);
     }
 
     #[test]

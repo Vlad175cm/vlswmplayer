@@ -15,6 +15,10 @@ a separate app on top of it.
 
 ## What it does
 
+- **ZEN** — a personal SoundCloud wave built from your likes. It groups liked
+  tracks into broad genres, pulls similar tracks through SoundCloud's related
+  endpoint and genre search, never repeats a track, and keeps the same artist
+  out of the last ten tracks.
 - **Search** SoundCloud tracks without logging in, through the same public
   `api-v2` endpoint the web player uses.
 - **Streams instantly** — the resolved HLS stream goes straight to `mpv`,
@@ -22,8 +26,6 @@ a separate app on top of it.
 - **Caches what you play.** First play streams and downloads in the
   background; every next play starts from disk in well under a second.
 - **Likes** — a local JSON list, a separate `LIKES` tab, `*` marker on rows.
-- **Local files** — an `UPLOADED` tab for your own audio. Files are copied into
-  the app directory, tags and cover art are read from the file.
 - **Portable library** — the hamburger menu exports and imports likes as one
   JSON file, so the same library moves between Linux and iOS.
 - **Follows the shell theme.** Reads the file VLSWM writes on `SUPER+T`, so the
@@ -32,8 +34,8 @@ a separate app on top of it.
 
 ## Screens
 
-Search results, the likes tab and the now-playing panel. Everything is drawn
-with 1 px lines on a pure black or pure white background.
+The ZEN wave, search results, the likes tab and the now-playing panel.
+Everything is drawn with 1 px lines on a pure black or pure white background.
 
 ## Requirements
 
@@ -95,13 +97,13 @@ If FUSE is not available:
 | `←` / `→` | previous / next track |
 | `SHIFT+←` / `SHIFT+→` | seek ∓5 s |
 | `↑` / `↓` | volume ±5 |
-| `TAB` | switch `SEARCH` / `LIKES` / `UPLOADED` |
-| `F` | like or unlike the selected track |
-| `M` | open the menu (add local files, export or import likes) |
-| `1` / `2` / `3` | menu items while the menu is open |
+| `TAB` | switch `ZEN` / `SEARCH` / `LIKES` |
+| `F` | like or unlike the selected track (on ZEN — the current one) |
+| `M` | open the menu (export or import likes) |
+| `1` / `2` | menu items while the menu is open |
 | `CTRL+SHIFT+C` | clear the track cache |
 | `/` | focus the search field |
-| `ENTER` | play the selected track |
+| `ENTER` | play the selected track; on ZEN — start or pause the wave |
 | `Q` | quit |
 
 Rows are clickable, progress and volume bars are draggable, the mouse wheel
@@ -114,8 +116,7 @@ scrolls the list.
 | `~/.config/vlswmplayer/config` | volume, last query, UI scale |
 | `~/.config/vlswmplayer/likes.json` | liked tracks |
 | `~/.cache/vlswmplayer/tracks/` | cached audio, one file per track |
-| `~/.local/share/vlswmplayer/uploaded/` | your own audio files |
-| `~/.local/share/vlswmplayer/uploaded.json` | index of the uploaded files |
+| `~/.cache/vlswmplayer/client_id` | SoundCloud client id refreshed from the website |
 
 Config example:
 
@@ -127,9 +128,14 @@ scale = 0.85
 
 ## How it works
 
-- Search: `GET https://api-v2.soundcloud.com/search/tracks` using the
-  `client_id` that `yt-dlp` keeps in its cache. If the id goes stale, the
-  player falls back to `yt-dlp scsearch10` and refreshes the cache.
+- Search: `GET https://api-v2.soundcloud.com/search/tracks` with a `client_id`
+  from the player's cache. If the id goes stale, the player scrapes a fresh one
+  from `soundcloud.com` and caches it; `yt-dlp scsearch10` is the last fallback.
+- ZEN: liked tracks are hydrated in batches (`/tracks?ids=`), grouped into
+  HIP-HOP / ELECTRONIC / HARDSTYLE / AMBIENT / ROCK / POP / OTHER, and used as
+  seeds for `/tracks/{id}/related` and genre search. Candidates are filtered by
+  media availability, duration, already-played ids and the last ten artists.
+  The queue holds 20 tracks and refills below five.
 - Playback: the track's `media.transcodings` entry is resolved into a direct
   HLS URL and handed to `mpv` over its JSON IPC socket. Encrypted
   (`*-encrypted-hls`) tracks are filtered out.

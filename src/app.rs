@@ -2,8 +2,9 @@ use crate::input::Action;
 use crate::model::{self, Model, Msg};
 use crate::sc::{self, Track};
 use crate::theme;
+use crate::zen::{self, Genre, Zen};
 use crate::{artwork, cache, config, input, library, likes, mpv, ui};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::{Duration, Instant};
@@ -29,6 +30,8 @@ pub struct App {
     drag: Option<Drag>,
     swallow_slash: bool,
     zoom_done: bool,
+    zen_gen: u64,
+    zen_waiting: bool,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
 }
@@ -105,9 +108,12 @@ impl App {
             drag: None,
             swallow_slash: false,
             zoom_done: false,
+            zen_gen: 0,
+            zen_waiting: false,
             tx,
             rx,
         };
+        app.model.set_view(crate::model::View::Zen);
         if app.model.query.chars().count() >= model::MIN_QUERY_LEN {
             app.start_search(&cc.egui_ctx);
         }
@@ -222,13 +228,117 @@ impl App {
         });
     }
 
+    fn zen_start(&mut self, ctx: &egui::Context) {
+        if self.model.liked.is_empty() {
+            self.model.status = Some("LIKE TRACKS FIRST".to_owned());
+            return;
+        }
+        self.zen_gen += 1;
+        let serial = self.zen_gen;
+        self.zen_waiting = false;
+        self.model.zen.loading = true;
+        self.model.zen.error = None;
+        self.model.status = Some("TUNING".to_owned());
+        let likes = self.model.liked.clone();
+        let tx = self.tx.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let Some(cid) = sc::client_id() else {
+                let _ = tx.send(Msg::ZenReady {
+                    serial,
+                    liked: likes.clone(),
+                    result: Err("NO CLIENT ID".to_owned()),
+                });
+                ctx.request_repaint();
+                return;
+            };
+            let liked = hydrate_likes(&likes, &cid);
+            let mut zen = Zen::new();
+            if !zen.begin(&liked) {
+                let _ = tx.send(Msg::ZenReady {
+                    serial,
+                    liked,
+                    result: Err("NO LIKES".to_owned()),
+                });
+                ctx.request_repaint();
+                return;
+            }
+            fill_zen(&mut zen, &liked, &cid, 4);
+            let result = if zen.queue.is_empty() {
+                Err("NO TRACKS".to_owned())
+            } else {
+                Ok(zen)
+            };
+            let _ = tx.send(Msg::ZenReady {
+                serial,
+                liked,
+                result,
+            });
+            ctx.request_repaint();
+        });
+    }
+
+    fn zen_refill(&mut self, ctx: &egui::Context) {
+        if !self.model.zen.active
+            || self.model.zen.loading
+            || !self.model.zen.needs_refill()
+        {
+            return;
+        }
+        self.model.zen.loading = true;
+        let serial = self.zen_gen;
+        let likes = self.model.liked.clone();
+        let mut zen = self.model.zen.clone();
+        let tx = self.tx.clone();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let result = match sc::client_id() {
+                Some(cid) => {
+                    fill_zen(&mut zen, &likes, &cid, 2);
+                    Ok(zen)
+                }
+                None => Err("NO CLIENT ID".to_owned()),
+            };
+            let _ = tx.send(Msg::ZenMore { serial, result });
+            ctx.request_repaint();
+        });
+    }
+
+    fn zen_advance(&mut self, skip: bool, ctx: &egui::Context) {
+        let next = if skip {
+            self.model.zen.skip()
+        } else {
+            self.model.zen.next()
+        };
+        if let Some(track) = next {
+            self.model.source = crate::model::View::Zen;
+            self.play_track(track, ctx);
+            self.zen_refill(ctx);
+        } else {
+            self.zen_waiting = true;
+            self.model.status = Some("TUNING".to_owned());
+            self.zen_refill(ctx);
+        }
+    }
+
     pub fn next_and_play(&mut self, ctx: &egui::Context) {
+        if self.model.source == crate::model::View::Zen {
+            self.zen_advance(false, ctx);
+            return;
+        }
         if let Some(track) = self.model.next_track() {
             self.play_track(track, ctx);
         }
     }
 
     pub fn prev_and_play(&mut self, ctx: &egui::Context) {
+        if self.model.source == crate::model::View::Zen {
+            if let Some(track) = self.model.zen.previous() {
+                self.model.source = crate::model::View::Zen;
+                self.play_track(track, ctx);
+            }
+            return;
+        }
         if let Some(track) = self.model.prev_track() {
             self.play_track(track, ctx);
         }
@@ -250,6 +360,7 @@ impl App {
 
     fn play_selected(&mut self, ctx: &egui::Context) {
         if let Some(track) = self.model.visible().get(self.model.selected).cloned() {
+            self.model.source = self.model.view;
             self.play_track(track, ctx);
         }
     }
@@ -290,16 +401,30 @@ impl App {
 
     fn run_action(&mut self, action: Action, ctx: &egui::Context) {
         match action {
-            Action::PlayPause => match self.player.as_mut() {
-                Some(player) => player.toggle(),
-                None => self.play_selected(ctx),
-            },
+            Action::PlayPause => {
+                if self.model.view == crate::model::View::Zen {
+                    if !self.model.zen.active {
+                        self.zen_start(ctx);
+                    } else if let Some(player) = self.player.as_mut() {
+                        player.toggle();
+                    }
+                } else {
+                    match self.player.as_mut() {
+                        Some(player) => player.toggle(),
+                        None => self.play_selected(ctx),
+                    }
+                }
+            }
             Action::Prev => {
                 self.prev_and_play(ctx);
                 self.ensure_visible();
             }
             Action::Next => {
-                self.next_and_play(ctx);
+                if self.model.source == crate::model::View::Zen {
+                    self.zen_advance(true, ctx);
+                } else {
+                    self.next_and_play(ctx);
+                }
                 self.ensure_visible();
             }
             Action::SeekBack => {
@@ -317,12 +442,23 @@ impl App {
             Action::VolumeUp => self.change_volume(5),
             Action::VolumeDown => self.change_volume(-5),
             Action::FocusSearch => {
+                self.model.set_view(crate::model::View::Search);
                 self.search_focus = true;
                 self.swallow_slash = true;
             }
             Action::Confirm => {
                 self.search_focus = false;
-                self.play_selected(ctx);
+                if self.model.view == crate::model::View::Zen {
+                    if self.model.zen.active {
+                        if let Some(player) = self.player.as_mut() {
+                            player.toggle();
+                        }
+                    } else {
+                        self.zen_start(ctx);
+                    }
+                } else {
+                    self.play_selected(ctx);
+                }
             }
             Action::ToggleView => {
                 self.model.toggle_view();
@@ -337,7 +473,13 @@ impl App {
                 self.model.scroll_by(capacity as i64, capacity);
             }
             Action::Like => {
-                self.model.toggle_like();
+                if self.model.view == crate::model::View::Zen {
+                    if let Some((track, liked)) = self.model.toggle_like_current() {
+                        self.model.zen.on_like(&track, liked);
+                    }
+                } else {
+                    self.model.toggle_like();
+                }
                 self.ensure_visible();
                 let _ = likes::save(&likes::default_path(), &self.model.liked);
             }
@@ -469,6 +611,12 @@ impl App {
                     if rect.contains(pos) {
                         self.model.set_view(view);
                         self.ensure_visible();
+                        return;
+                    }
+                }
+                if let Some(rect) = self.hits.zen_play {
+                    if rect.contains(pos) {
+                        self.run_action(Action::PlayPause, ctx);
                         return;
                     }
                 }
@@ -630,6 +778,62 @@ impl App {
                         self.cache.remove(&id);
                     }
                 }
+                Msg::ZenReady {
+                    serial,
+                    liked,
+                    result,
+                } => {
+                    if serial != self.zen_gen {
+                        continue;
+                    }
+                    self.model.liked = liked;
+                    let _ = likes::save(&likes::default_path(), &self.model.liked);
+                    self.model.zen.loading = false;
+                    match result {
+                        Ok(zen) => {
+                            self.model.zen = zen;
+                            self.zen_waiting = false;
+                            self.model.source = crate::model::View::Zen;
+                            if let Some(track) = self.model.zen.current().cloned() {
+                                self.play_track(track, ctx);
+                                self.zen_refill(ctx);
+                            } else {
+                                self.model.status = Some("ZEN: NOTHING FOUND".to_owned());
+                            }
+                        }
+                        Err(error) => {
+                            self.model.zen.active = false;
+                            self.model.zen.error = Some(error.clone());
+                            self.model.status = Some(format!("ZEN: {error}"));
+                        }
+                    }
+                }
+                Msg::ZenMore { serial, result } => {
+                    if serial != self.zen_gen {
+                        continue;
+                    }
+                    self.model.zen.loading = false;
+                    match result {
+                        Ok(zen) => {
+                            self.model.zen.merge_queue(zen);
+                            if self.zen_waiting {
+                                if let Some(track) = self.model.zen.next() {
+                                    self.zen_waiting = false;
+                                    self.model.source = crate::model::View::Zen;
+                                    self.play_track(track, ctx);
+                                    self.zen_refill(ctx);
+                                } else {
+                                    self.model.status =
+                                        Some("ZEN: NOTHING FOUND".to_owned());
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            self.model.zen.error = Some(error.clone());
+                            self.model.status = Some(format!("ZEN: {error}"));
+                        }
+                    }
+                }
                 other => {
                     let is_artwork = matches!(other, Msg::ArtworkDone { .. });
                     self.model.apply(other);
@@ -664,9 +868,18 @@ impl eframe::App for App {
                     self.cache.remove(&track.id);
                 }
                 self.model.status = Some("TRACK UNAVAILABLE".to_owned());
-                self.next_and_play(ctx);
+                if self.model.source == crate::model::View::Zen {
+                    self.model.zen.mark_failed();
+                    self.zen_advance(false, ctx);
+                } else {
+                    self.next_and_play(ctx);
+                }
             } else if player.finished() {
-                self.next_and_play(ctx);
+                if self.model.source == crate::model::View::Zen {
+                    self.zen_advance(false, ctx);
+                } else {
+                    self.next_and_play(ctx);
+                }
             }
         }
 
@@ -702,5 +915,108 @@ fn expand_home(path: &str) -> std::path::PathBuf {
         }
     }
     std::path::PathBuf::from(path)
+}
+
+fn hydrate_likes(likes: &[Track], cid: &str) -> Vec<Track> {
+    let ids: Vec<String> = likes
+        .iter()
+        .filter(|track| track.genre.is_empty() && track.tags.is_empty())
+        .map(|track| track.id.clone())
+        .collect();
+    if ids.is_empty() {
+        return likes.to_vec();
+    }
+    let Ok(full) = sc::api_tracks(&ids, cid) else {
+        return likes.to_vec();
+    };
+    let mut by_id: HashMap<String, Track> = full
+        .into_iter()
+        .map(|track| (track.id.clone(), track))
+        .collect();
+    likes
+        .iter()
+        .map(|track| {
+            let Some(full) = by_id.remove(&track.id) else {
+                return track.clone();
+            };
+            Track {
+                genre: if track.genre.is_empty() {
+                    full.genre
+                } else {
+                    track.genre.clone()
+                },
+                tags: if track.tags.is_empty() {
+                    full.tags
+                } else {
+                    track.tags.clone()
+                },
+                ..track.clone()
+            }
+        })
+        .collect()
+}
+
+fn fill_zen(zen: &mut Zen, likes: &[Track], cid: &str, rounds: usize) {
+    for _ in 0..rounds {
+        if zen.queue.len() >= zen::QUEUE_TARGET {
+            break;
+        }
+        let Some(genre) = zen.next_genre() else {
+            break;
+        };
+        let seeds: Vec<&Track> = likes
+            .iter()
+            .filter(|track| Genre::from_tags(&track.genre, &track.tags) == genre)
+            .collect();
+        let mut candidates = Vec::new();
+        for seed in seeds.iter().take(2) {
+            if let Ok(mut tracks) = sc::related_tracks(&seed.id, cid, 20) {
+                candidates.append(&mut tracks);
+            }
+        }
+        if genre != Genre::Other {
+            if let Ok(mut tracks) = sc::search_api_limit(genre.query(), cid, 20) {
+                candidates.append(&mut tracks);
+            }
+        }
+        zen.enqueue(candidates, genre);
+    }
+
+    if zen.queue.is_empty() {
+        let mut candidates = Vec::new();
+        for seed in likes.iter().take(3) {
+            if let Ok(mut tracks) = sc::related_tracks(&seed.id, cid, 20) {
+                candidates.append(&mut tracks);
+            }
+        }
+        zen.enqueue(candidates, Genre::Other);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn manual_zen_queue() {
+        let saved = likes::load(&likes::default_path());
+        let cid = sc::client_id().expect("client id");
+        let liked = hydrate_likes(&saved, &cid);
+        let with_genre = liked
+            .iter()
+            .filter(|track| !track.genre.is_empty() || !track.tags.is_empty())
+            .count();
+        eprintln!("likes={} with_genre={}", liked.len(), with_genre);
+
+        let mut zen = Zen::new();
+        assert!(zen.begin(&liked));
+        fill_zen(&mut zen, &liked, &cid, 4);
+        eprintln!("queue={} weights={:?}", zen.queue.len(), zen.weights);
+        for track in zen.queue.iter().take(10) {
+            eprintln!("{} | {} | {}", track.artist, track.title, track.genre);
+        }
+        assert!(!zen.queue.is_empty());
+    }
 }
 
